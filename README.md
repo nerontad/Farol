@@ -5,7 +5,7 @@ puntuación y supera ocho mesas de tahúres cada vez más exigentes.
 
 ![Una jugada puntuando: el amuleto Racha suma Multi](capturas/20_evento_amuleto.png)
 
-FAROL es un juego casero (*homebrew*) original, escrito en C para la PSP. Todo lo que ves y oyes
+FAROL es un juego casero (*homebrew*) inspirado en balatro, escrito en C para la PSP. Todo lo que ves y oyes
 se genera por código: no hay ni un solo archivo de imagen o de sonido en el juego.
 
 > **Estado del proyecto.** Funciona completo en el emulador PPSSPP, donde se ha probado con
@@ -369,7 +369,7 @@ Cada icono son 16 filas de 16 letras, donde cada letra es un color de la paleta:
 
 ## Créditos y licencia
 
-FAROL es un juego original: su código, sus reglas concretas, sus textos, sus ilustraciones y su
+FAROL es un juego inspirado en balatro, pero no es balatro: su código, sus reglas concretas, sus textos, sus ilustraciones y su
 sonido se hicieron para este proyecto. Pertenece al género de los roguelikes de construcción de
 mazos con manos de póker, pero no es un port ni una copia de ningún juego comercial, ni está
 afiliado a ninguno.
