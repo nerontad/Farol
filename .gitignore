@@ -1,0 +1,16 @@
+# Lo que genera la compilacion (make, build.ps1, tools/mkiso.py).
+# FAROL.iso y EBOOT.PBP se publican en Releases, no en el repositorio.
+*.o
+*.elf
+farol.prx
+PARAM.SFO
+EBOOT.PBP
+FAROL.iso
+build/
+
+# Pruebas en PC
+test_game
+test_synth
+*.exe
+muestra.wav
+vista.png

@@ -45,7 +45,7 @@ static unsigned int __attribute__((aligned(16))) gu_list[262144];
 static unsigned int __attribute__((aligned(16))) atlas[ATLAS_W * ATLAS_H];
 /* Segunda textura: las ilustraciones (iconos de 16x16 con 1 px de margen entre celdas) */
 #define ART_W     256
-#define ART_H     128
+#define ART_H     256
 #define ART_PITCH 18
 #define ART_COLS  (ART_W / ART_PITCH)
 #define ART_SIZE  16

@@ -5,10 +5,10 @@
 #define VOICES 16
 #define QUEUE  32
 #define CHUNK  256
-#define STEP_SAMPLES (SYNTH_RATE * 60 / 100 / 4)   /* semicorchea a 100 pulsos por minuto */
 
 typedef struct {
     int wave, att;
+    int bus;                            /* 0 = efectos, 1 = musica: cada uno con su volumen */
     float phase, inc, incMul, amp, ampMul, last;
 } Voice;
 
@@ -19,18 +19,50 @@ static Note queue[QUEUE];
 static volatile unsigned int qHead, qTail;
 static volatile int musicOn = 1;
 static volatile int intensity = 0;      /* 0..100 */
+static volatile int volume[2] = { 10, 7 };   /* efectos y musica, de 0 a 10 */
 static float midiFreq[128];
 static unsigned int noiseSeed = 22222u;
 static int seqPos, seqLeft;
 static int statPeak;
 static unsigned int statNonZero;
 
-/* progresion La menor - Fa - Do - Sol */
-static const signed char CH_BASS[4] = { 45, 41, 48, 43 };
-static const signed char CH_TONES[4][4] = {
-    { 57, 60, 64, 69 }, { 53, 57, 60, 65 }, { 60, 64, 67, 72 }, { 55, 59, 62, 67 }
+/* Cada pieza son cuatro compases de 16 semicorcheas: bajo, arpegio del acorde y charles.
+   Las mascaras dicen en que semicorcheas del compas suena cada instrumento. */
+typedef struct {
+    int bpm;
+    signed char bass[4];            /* nota del bajo de cada compas (MIDI) */
+    signed char tones[4][4];        /* notas del acorde de cada compas */
+    signed char arp[8];             /* orden en que se tocan las notas del acorde */
+    unsigned short bassMask, arpMask, hatMask;
+    unsigned char arpWave;
+    float bassVol, bassLen, arpVol, arpLen, hatVol;
+} Track;
+
+static const Track TRACKS[TRACK_COUNT] = {
+    /* titulo: tranquila, acordes de septima (Rem7 - Sol7 - DoMaj7 - Lam7) */
+    { 84, { 38, 43, 48, 45 },
+      { { 62, 65, 69, 72 }, { 59, 62, 65, 67 }, { 60, 64, 67, 71 }, { 57, 60, 64, 67 } },
+      { 0, 1, 2, 3, 2, 1, 2, 3 }, 0x0101, 0x5555, 0x0000, W_SINE,
+      0.10f, 0.90f, 0.050f, 0.40f, 0.0f },
+    /* partida: la de siempre (Lam - Fa - Do - Sol) */
+    { 100, { 45, 41, 48, 43 },
+      { { 57, 60, 64, 69 }, { 53, 57, 60, 65 }, { 60, 64, 67, 72 }, { 55, 59, 62, 67 } },
+      { 0, 2, 1, 2, 3, 2, 1, 2 }, 0x4101, 0x5555, 0x0000, W_SINE,
+      0.11f, 0.45f, 0.055f, 0.30f, 0.020f },
+    /* rival: mas rapida y tensa, bajo constante (Mim - Do - Lam - Si) */
+    { 120, { 40, 36, 45, 47 },
+      { { 64, 67, 71, 76 }, { 60, 64, 67, 72 }, { 57, 60, 64, 69 }, { 59, 63, 66, 71 } },
+      { 0, 2, 1, 3, 0, 2, 1, 3 }, 0x5555, 0x5555, 0xAAAA, W_TRI,
+      0.13f, 0.16f, 0.052f, 0.18f, 0.014f },
+    /* tienda: alegre y saltarina (Do - Lam - Rem - Sol) */
+    { 112, { 48, 45, 50, 43 },
+      { { 60, 64, 67, 72 }, { 57, 60, 64, 69 }, { 62, 65, 69, 74 }, { 55, 59, 62, 67 } },
+      { 0, 1, 2, 1, 3, 1, 2, 1 }, 0x4141, 0x5555, 0x4444, W_TRI,
+      0.13f, 0.24f, 0.058f, 0.20f, 0.016f },
 };
-static const signed char ARP[8] = { 0, 2, 1, 2, 3, 2, 1, 2 };
+
+static volatile int trackWant = TRACK_TITLE;
+static int trackCur = -1;
 
 void synth_init(void)
 {
@@ -39,6 +71,8 @@ void synth_init(void)
     qHead = qTail = 0;
     seqPos = 0;
     seqLeft = 0;
+    trackCur = -1;
+    trackWant = TRACK_TITLE;
     statPeak = 0;
     statNonZero = 0;
     /* La4 (nota 69) = 440 Hz; el resto, multiplicando por la raiz doceava de 2 */
@@ -47,7 +81,12 @@ void synth_init(void)
     for (i = 68; i >= 0; i--) midiFreq[i] = midiFreq[i + 1] / 1.0594631f;
 }
 
-static void note_on(int wave, float freq, float vol, float secs, float slide)
+static void note_bus(int wave, float freq, float vol, float secs, float slide, int bus);
+
+/* las notas que lanza el secuenciador son de musica */
+#define note_on(w, f, v, s, sl) note_bus(w, f, v, s, sl, 1)
+
+static void note_bus(int wave, float freq, float vol, float secs, float slide, int bus)
 {
     Voice *v = &voices[0];
     float n;
@@ -58,6 +97,7 @@ static void note_on(int wave, float freq, float vol, float secs, float slide)
     n = secs * SYNTH_RATE;
     if (n < 200.0f) n = 200.0f;
     v->wave = wave;
+    v->bus = bus;
     v->att = 0;
     v->phase = 0.0f;
     v->inc = freq / SYNTH_RATE;
@@ -79,18 +119,31 @@ void synth_note(int wave, float freq, float vol, float secs, float slide)
     qHead = next;
 }
 
+/* Una semicorchea de la pieza en curso */
 static void music_step(void)
 {
+    const Track *t = &TRACKS[trackCur];
     int bar = (seqPos / 16) % 4, st = seqPos % 16;
     int hot = intensity;
+    unsigned short bit = (unsigned short)(1u << st);
 
-    if (st == 0 || st == 8) note_on(W_TRI, midiFreq[CH_BASS[bar]], 0.11f, 0.45f, 0.0f);
-    if (st == 14) note_on(W_TRI, midiFreq[CH_BASS[bar]], 0.07f, 0.20f, 0.0f);
-    if ((st & 1) == 0) note_on(W_SINE, midiFreq[CH_TONES[bar][ARP[st / 2]]], 0.055f, 0.30f, 0.0f);
-    if (hot > 30 && (st & 3) == 2) note_on(W_NOISE, 9000.0f, 0.02f, 0.03f, 0.0f);
+    if (t->bassMask & bit) {
+        /* el bajo pesa mas en el primer y el tercer tiempo */
+        float accent = (st % 8 == 0) ? 1.0f : 0.65f;
+        note_on(W_TRI, midiFreq[t->bass[bar]], t->bassVol * accent, t->bassLen, 0.0f);
+    }
+    if (t->arpMask & bit) note_on(t->arpWave, midiFreq[t->tones[bar][t->arp[st / 2]]], t->arpVol, t->arpLen, 0.0f);
+    if (t->hatVol > 0.0f && ((t->hatMask & bit) || (hot > 30 && (st & 3) == 2)))
+        note_on(W_NOISE, 9000.0f, t->hatVol, 0.03f, 0.0f);
+    /* cuando la partida se calienta, una segunda voz una octava mas arriba */
     if (hot > 60 && (st & 1) == 1)
-        note_on(W_TRI, midiFreq[CH_TONES[bar][ARP[(st / 2 + 2) % 8]] + 12], 0.035f, 0.12f, 0.0f);
+        note_on(W_TRI, midiFreq[t->tones[bar][t->arp[(st / 2 + 2) % 8]] + 12], 0.035f, 0.12f, 0.0f);
     seqPos++;
+}
+
+static int step_samples(void)
+{
+    return SYNTH_RATE * 60 / TRACKS[trackCur].bpm / 4;
 }
 
 static void mix(float *buf, int n)
@@ -99,6 +152,7 @@ static void mix(float *buf, int n)
     for (i = 0; i < n; i++) buf[i] = 0.0f;
     for (k = 0; k < VOICES; k++) {
         Voice *v = &voices[k];
+        float gain = (float)volume[v->bus & 1] * 0.1f;
         if (v->amp < 0.0005f) { v->amp = 0.0f; continue; }
         for (i = 0; i < n; i++) {
             float ph = v->phase, s, a = v->amp;
@@ -125,7 +179,7 @@ static void mix(float *buf, int n)
             v->inc *= v->incMul;
             if (v->att < 64) { a *= (float)v->att / 64.0f; v->att++; }
             v->amp *= v->ampMul;
-            buf[i] += s * a;
+            buf[i] += s * a * gain;
         }
     }
 }
@@ -136,15 +190,20 @@ void synth_render(short *out, int frames)
 
     while (qTail != qHead) {
         Note *q = &queue[qTail];
-        note_on(q->wave, q->freq, q->vol, q->secs, q->slide);
+        note_bus(q->wave, q->freq, q->vol, q->secs, q->slide, 0);   /* lo que pide el juego son efectos */
         qTail = (qTail + 1) % QUEUE;
     }
 
     while (frames > 0) {
         int n = frames < CHUNK ? frames : CHUNK, i;
         if (seqLeft <= 0) {
+            /* el cambio de pieza se hace en una semicorchea y empieza desde su primer compas */
+            if (trackWant != trackCur) {
+                trackCur = trackWant;
+                seqPos = 0;
+            }
             if (musicOn) music_step();
-            seqLeft = STEP_SAMPLES;
+            seqLeft = step_samples();
         }
         if (n > seqLeft) n = seqLeft;
         mix(buf, n);
@@ -167,6 +226,17 @@ void synth_render(short *out, int frames)
 
 void synth_set_music(int on) { musicOn = on; }
 int  synth_get_music(void)   { return musicOn; }
+
+void synth_set_track(int track)
+{
+    if (track >= 0 && track < TRACK_COUNT) trackWant = track;
+}
+
+void synth_set_volume(int music, int sfx)
+{
+    volume[1] = music < 0 ? 0 : (music > 10 ? 10 : music);
+    volume[0] = sfx < 0 ? 0 : (sfx > 10 ? 10 : sfx);
+}
 
 void synth_set_intensity(float v)
 {

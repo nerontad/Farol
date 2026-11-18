@@ -407,7 +407,7 @@ static void test_save(void)
     a.tricks[0] = T_LIMA; a.trickCount = 1;
     a.money = 17;
     game_setup_round(&a);
-    save_mark_found(R_DADO);
+    save_relic_bought(R_DADO);
     save_run(&a, RESUME_INTRO);
     CHECK(diskSize > 0, "no se escribio nada");
 
@@ -450,7 +450,7 @@ static void test_save(void)
     /* 12 amuletos descubiertos desbloquean la baraja marcada */
     diskSize = 0;
     save_init();
-    for (i = 0; i < 12; i++) save_mark_found(i);
+    for (i = 0; i < 12; i++) save_relic_bought(i);
     CHECK(save_deck_unlocked(DECK_MARCADA), "baraja marcada");
 
     /* la recompensa usa las reglas de fin de ronda */
@@ -646,6 +646,127 @@ static void test_profile(void)
     save_init();
 }
 
+/* ------------------------ amuletos nuevos, reordenar, semilla, estadisticas */
+
+static void test_extras(void)
+{
+    static Game g, g2;
+    static ScoreResult res;
+    Card h[8];
+    long long t;
+    int i;
+
+    /* Navaja suiza: x1,3 por cada truco que lleves. As solo con 2 trucos: 21 x 1,69 = 35 */
+    fresh(&g);
+    add_relic(&g, R_SUIZA);
+    g.tricks[0] = T_SOPLO; g.tricks[1] = T_LIMA; g.trickCount = 2;
+    h[0] = C(14, 0);
+    t = play_fixed(&g, h, 1, &res);
+    CHECK(t == 35, "navaja suiza = %lld, esperado 35", t);
+
+    /* Solitario (x3) con una carta; Carambola (x2,5) solo si puntuan las cinco */
+    fresh(&g);
+    add_relic(&g, R_SOLITARIO);
+    add_relic(&g, R_CARAMBOLA);
+    t = play_fixed(&g, h, 1, &res);
+    CHECK(t == 63, "solitario = %lld, esperado 63", t);
+    h[0] = C(2, 1); h[1] = C(5, 1); h[2] = C(9, 1); h[3] = C(11, 1); h[4] = C(13, 1);
+    t = play_fixed(&g, h, 5, &res);
+    CHECK(t == 910, "carambola = %lld, esperado 910", t);
+
+    /* Alquimista: las cartas con marca puntuan dos veces. Pareja de 9, una de Plata */
+    fresh(&g);
+    add_relic(&g, R_ALQUIMISTA);
+    h[0] = C(9, 0); h[0].mark = MARK_SILVER;
+    h[1] = C(9, 1);
+    t = play_fixed(&g, h, 2, &res);          /* (20 + 39 + 39 + 9) x 2 = 214 */
+    CHECK(t == 214, "alquimista = %lld, esperado 214", t);
+
+    /* Grabador (+40 por muesca) y Archivero (+2 Multi por carta modificada del mazo) */
+    fresh(&g);
+    add_relic(&g, R_GRABADOR);
+    add_relic(&g, R_ARCHIVERO);
+    for (i = 0; i < g.deckCount; i++) { g.deck[i].mark = 0; g.deck[i].notch = 0; }
+    g.deck[40].mark = MARK_RUBY; g.deck[41].notch = NOTCH_ANCLA; g.deck[42].mark = MARK_GOLD;
+    h[0] = C(9, 0); h[0].notch = NOTCH_TRUEQUE;
+    h[1] = C(9, 1);
+    t = play_fixed(&g, h, 2, &res);          /* (20 + 9 + 40 + 9) x (2 + 6) = 624 */
+    CHECK(t == 624, "grabador + archivero = %lld, esperado 624", t);
+
+    /* Chatarrero y Prestidigitador reaccionan al usar un truco */
+    fresh(&g);
+    add_relic(&g, R_CHATARRERO);
+    add_relic(&g, R_PRESTI);
+    g.tricks[0] = T_SOPLO; g.trickCount = 1;
+    i = g.money;
+    CHECK(game_use_trick(&g, 0) == TRICK_OK, "soplo");
+    CHECK(g.money == i + 2 && g.relicCounter[0] == 3 && g.statTricks == 1, "reaccion al truco: $%d, contador %d", g.money, g.relicCounter[0]);
+    h[0] = C(14, 0);
+    t = play_fixed(&g, h, 1, &res);          /* 21 x (1 + 3) = 84 */
+    CHECK(t == 84, "chatarrero = %lld, esperado 84", t);
+
+    /* reordenar amuletos: el contador viaja con su amuleto y los extremos no se salen */
+    fresh(&g);
+    add_relic(&g, R_NIEVE);
+    add_relic(&g, R_TINTE);
+    add_relic(&g, R_HERRADURA);
+    g.relicCounter[0] = 7;
+    CHECK(game_move_relic(&g, 0, 1) == 1, "mover a la derecha");
+    CHECK(g.relics[0] == R_TINTE && g.relics[1] == R_NIEVE && g.relicCounter[1] == 7 && g.relicCounter[0] == 0, "orden tras mover");
+    CHECK(game_move_relic(&g, 0, -1) == 0 && game_move_relic(&g, 2, 1) == 2, "los extremos no se mueven");
+    /* y el orden cambia la puntuacion: Tinte antes o despues de Herradura */
+    h[0] = C(2, 1); h[1] = C(5, 1); h[2] = C(9, 1); h[3] = C(11, 1); h[4] = C(13, 1);
+    g.relicCount = 0;
+    add_relic(&g, R_TINTE);
+    add_relic(&g, R_HERRADURA);
+    t = play_fixed(&g, h, 5, &res);
+    CHECK(t == 1092, "tinte, herradura = %lld", t);
+    game_move_relic(&g, 0, 1);
+    t = play_fixed(&g, h, 5, &res);
+    CHECK(t == 1456, "herradura, tinte = %lld, esperado 1456", t);
+
+    /* la misma semilla da la misma partida */
+    game_new_run(&g, 0xC0FFEE, DECK_CLASICA, DIFF_NORMAL);
+    CHECK(g.seed == 0xC0FFEE, "semilla guardada %x", g.seed);
+    game_setup_round(&g);
+    game_begin_round(&g);
+    game_new_run(&g2, 0xC0FFEE, DECK_CLASICA, DIFF_NORMAL);
+    game_setup_round(&g2);
+    game_begin_round(&g2);
+    for (i = 0; i < g.handCount; i++)
+        CHECK(g.hand[i].rank == g2.hand[i].rank && g.hand[i].suit == g2.hand[i].suit, "mano distinta con la misma semilla");
+
+    /* estadisticas de la partida y acumuladas */
+    diskSize = 0;
+    save_init();
+    CHECK(save_profile()->musicVol == 7 && save_profile()->sfxVol == 10 && save_profile()->lang == LANG_AUTO, "opciones por defecto");
+    fresh(&g);
+    g.sel[0] = 1;
+    game_play(&g, &res);
+    game_finish_play(&g, &res);
+    g.sel[0] = 1;
+    CHECK(game_discard(&g), "descarte");
+    CHECK(g.statHands == 1 && g.statDiscards == 1, "estadisticas de partida %d %d", g.statHands, g.statDiscards);
+    save_relic_bought(R_ECO);
+    save_relic_bought(R_ECO);
+    save_run_ended(&g);
+    save_set_options(3, 5, LANG_SET_EN);
+    save_init();
+    CHECK(save_profile()->totalHands == 1 && save_profile()->totalDiscards == 1, "estadisticas acumuladas");
+    CHECK(save_profile()->relicBought[R_ECO] == 2 && save_is_found(R_ECO), "compras de un amuleto");
+    CHECK(save_profile()->handPlays[res.eval.type] == 1, "manos por tipo");
+    CHECK(save_profile()->musicVol == 3 && save_profile()->sfxVol == 5 && save_profile()->lang == LANG_SET_EN, "opciones guardadas");
+    diskSize = 0;
+    save_init();
+
+    /* todos los textos existen en los dos idiomas */
+    for (i = 0; i < R_COUNT; i++)
+        CHECK(RELIC_INFO[i].name[0] && RELIC_INFO[i].name[1] && RELIC_INFO[i].desc[0] && RELIC_INFO[i].desc[1]
+              && RELIC_INFO[i].name[1][0] && RELIC_INFO[i].desc[1][0] && RELIC_INFO[i].rules[0].when, "amuleto %d incompleto", i);
+    for (i = 0; i < T_COUNT; i++) CHECK(TRICK_INFO[i].name[1] && TRICK_INFO[i].desc[1], "truco %d sin ingles", i);
+    for (i = 1; i < B_COUNT; i++) CHECK(BOSS_INFO[i].name[1] && BOSS_INFO[i].desc[1][0], "rival %d sin ingles", i);
+}
+
 /* ----------------------------------------------------------- partida bot */
 
 static long long estimate(const Game *g, const Card *c, int n, HandEval *e)
@@ -797,6 +918,7 @@ int main(int argc, char **argv)
     test_save();
     test_bosses();
     test_profile();
+    test_extras();
     printf("pruebas de reglas, trucos, barajas y guardado: %s\n", failures ? "CON FALLOS" : "bien");
 
     for (d = 0; d < DECK_COUNT; d++) {
@@ -806,7 +928,7 @@ int main(int argc, char **argv)
             int m = bot_run(1000u + (unsigned int)i * 7919u, d, &best);
             if (m >= 0 && m <= NUM_MESAS) { hist[m]++; sum += m; }
         }
-        printf("baraja %-10s %5d partidas | mesas superadas de media %.2f | victorias %.1f%% | ", DECK_INFO[d].name, n,
+        printf("baraja %-10s %5d partidas | mesas superadas de media %.2f | victorias %.1f%% | ", DECK_INFO[d].name[0], n,
                (double)sum / n, 100.0 * hist[NUM_MESAS] / n);
         for (i = 0; i <= NUM_MESAS; i++) printf("%d ", hist[i] * 100 / n);
         printf("\n");

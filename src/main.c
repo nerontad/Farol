@@ -2,6 +2,8 @@
 #include <pspkernel.h>
 #include <pspdisplay.h>
 #include <pspiofilemgr.h>
+#include <psputility.h>
+#include "game.h"
 #include "gfx.h"
 #include "input.h"
 #include "ui.h"
@@ -40,6 +42,14 @@ static void setup_callbacks(void)
 unsigned int plat_ticks(void)
 {
     return sceKernelGetSystemTimeLow();
+}
+
+/* El juego arranca en espanol si la consola lo esta; si no, en ingles */
+int plat_system_lang(void)
+{
+    int v = PSP_SYSTEMPARAM_LANGUAGE_SPANISH;
+    if (sceUtilityGetSystemParamInt(PSP_SYSTEMPARAM_ID_INT_LANGUAGE, &v) < 0) return LANG_ES;
+    return v == PSP_SYSTEMPARAM_LANGUAGE_SPANISH ? LANG_ES : LANG_EN;
 }
 
 int main(void)

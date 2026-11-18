@@ -10,6 +10,9 @@
 #include "art.h"
 #include "ui.h"
 
+/* Texto en el idioma activo: T("espanol", "english") */
+#define T(es, en) (LANG ? (en) : (es))
+
 /* ---------------------------------------------------------------- colores */
 
 #define COL_BG_TOP   RGB(52, 22, 38)
@@ -70,10 +73,11 @@ static const char *const SUIT_GLYPH[4] = { G_SPADE, G_HEART, G_CLUB, G_DIAMOND }
 #define RELIC_X(s) (134 + (s) * 43)
 #define TRICK_X(k) (354 + (k) * 42)
 #define TRICK_ART(id) (R_COUNT + (id))    /* celda de la ilustracion de un truco */
+#define BOSS_ART(b) (R_COUNT + T_COUNT + (b) - 1)    /* celda del retrato de un rival */
 
 /* ----------------------------------------------------------------- estado */
 
-enum { ST_TITLE, ST_DECK, ST_COLLECTION, ST_INTRO, ST_PLAY, ST_WIN, ST_SHOP, ST_GAMEOVER, ST_VICTORY };
+enum { ST_TITLE, ST_DECK, ST_COLLECTION, ST_OPTIONS, ST_INTRO, ST_PLAY, ST_WIN, ST_SHOP, ST_GAMEOVER, ST_VICTORY };
 enum { PH_SELECT, PH_TOCENTER, PH_EVENTS, PH_TOTAL, PH_COUNT, PH_END };
 enum { ROW_OFFER, ROW_REROLL, ROW_SELL, ROW_TRICK, ROW_NEXT };
 
@@ -96,6 +100,10 @@ static int newDiff;                  /* dificultad desbloqueada al ganar, o 0 */
 static int update_info(void);
 static int trickMode, trickSel;      /* menu de trucos abierto durante la ronda */
 static int newUnlock;                /* baraja desbloqueada al acabar la partida, o -1 */
+static int optSel;                   /* fila elegida en el menu de opciones */
+static int seedEdit, seedCustom, seedDigit;
+static unsigned int seedValue;       /* semilla elegida a mano para la proxima partida */
+static int infoSel, infoHeld;        /* amuleto elegido (y cogido) en la pagina de informacion */
 
 /* --------------------------------------------------- estado de los efectos */
 
@@ -145,7 +153,7 @@ static void fmt_ll(char *out, long long v)
     int n = 0, d = 0, i;
     if (v < 0) v = 0;
     do {
-        if (d && d % 3 == 0) tmp[n++] = '.';
+        if (d && d % 3 == 0) tmp[n++] = LANG ? ',' : '.';
         tmp[n++] = (char)('0' + (int)(v % 10));
         v /= 10;
         d++;
@@ -160,7 +168,7 @@ static void fmt_mult(char *out, double m)
     fmt_ll(out, t / 10);
     if (t % 10) {
         int n = (int)strlen(out);
-        out[n] = ',';
+        out[n] = LANG ? '.' : ',';
         out[n + 1] = (char)('0' + (int)(t % 10));
         out[n + 2] = 0;
     }
@@ -600,20 +608,20 @@ static void draw_flash(void)
 
 static const char *round_name(void)
 {
-    if (g.round == 0) return "Calentamiento";
-    if (g.round == 1) return "Apuesta fuerte";
-    return BOSS_INFO[g.bossRule].name;
+    if (g.round == 0) return T("Calentamiento", "Warm-up");
+    if (g.round == 1) return T("Apuesta fuerte", "High Stakes");
+    return BOSS_INFO[g.bossRule].name[LANG];
 }
 
 static void boss_desc(char *b, int n)
 {
     if (g.bossRule == B_SUIT)
-        snprintf(b, n, "Las cartas de %s (%s) no puntúan.", SUIT_NAME[g.bossSuit], SUIT_GLYPH[g.bossSuit]);
+        snprintf(b, n, T("Las cartas de %s (%s) no puntúan.", "The %s (%s) don't score."), SUIT_NAME[LANG][g.bossSuit], SUIT_GLYPH[g.bossSuit]);
     else if (g.bossRule == B_COLOR)
-        snprintf(b, n, g.bossSuit ? "Las cartas rojas (" G_HEART G_DIAMOND ") no puntúan."
-                                  : "Las cartas negras (" G_SPADE G_CLUB ") no puntúan.");
+        snprintf(b, n, g.bossSuit ? T("Las cartas rojas (" G_HEART G_DIAMOND ") no puntúan.", "Red cards (" G_HEART G_DIAMOND ") don't score.")
+                                  : T("Las cartas negras (" G_SPADE G_CLUB ") no puntúan.", "Black cards (" G_SPADE G_CLUB ") don't score."));
     else
-        snprintf(b, n, "%s", BOSS_INFO[g.bossRule].desc);
+        snprintf(b, n, "%s", BOSS_INFO[g.bossRule].desc[LANG]);
 }
 
 static int hand_x(int i, int n)
@@ -769,7 +777,7 @@ static void anim_cards(void)
 
 /* ----------------------------------------------------------------- titulo */
 
-enum { TI_CONTINUE, TI_NEW, TI_COLLECTION };
+enum { TI_CONTINUE, TI_NEW, TI_COLLECTION, TI_OPTIONS };
 
 static int title_items(int *ids)
 {
@@ -777,12 +785,13 @@ static int title_items(int *ids)
     if (save_has_run()) ids[n++] = TI_CONTINUE;
     ids[n++] = TI_NEW;
     ids[n++] = TI_COLLECTION;
+    ids[n++] = TI_OPTIONS;
     return n;
 }
 
 static void update_title(void)
 {
-    int ids[3], n = title_items(ids), resume = RESUME_INTRO;
+    int ids[4], n = title_items(ids), resume = RESUME_INTRO;
 
     if (titleSel >= n) titleSel = 0;
     if (input_repeat(BTN_UP))   { titleSel = (titleSel + n - 1) % n; snd_move(); selPulse = 1.0f; }
@@ -801,13 +810,20 @@ static void update_title(void)
         break;
     case TI_NEW:
         deckSel = 0;
+        seedEdit = 0;
+        seedCustom = 0;
         set_state(ST_DECK);
         snd_select(1);
         break;
-    default:
+    case TI_COLLECTION:
         colSel = 0;
         colPage = 0;
         set_state(ST_COLLECTION);
+        snd_select(1);
+        break;
+    default:
+        optSel = 0;
+        set_state(ST_OPTIONS);
         snd_select(1);
         break;
     }
@@ -820,27 +836,32 @@ static void draw_title(void)
         { 11, SUIT_DIAMONDS, 0, 0, 0 }, { 10, SUIT_SPADES, 0, 0, 0 }
     };
     static const char *const letters[5] = { "F", "A", "R", "O", "L" };
-    int ids[3], n = title_items(ids), i;
+    int ids[4], n = title_items(ids), i;
 
     draw_bg();
-    gfx_rect(0, 116, SCR_W, 84, RGBA(0, 0, 0, 60));
+    gfx_rect(0, 104, SCR_W, 84, RGBA(0, 0, 0, 60));
     for (i = 0; i < 5; i++) {
         float t = (float)frame * 0.05f + (float)i * 0.9f;
-        draw_card_x(132.0f + (float)i * 46.0f, 130.0f + sinf(t) * 4.0f + (float)((i - 2) * (i - 2)) * 2.0f,
+        draw_card_x(132.0f + (float)i * 46.0f, 114.0f + sinf(t) * 4.0f + (float)((i - 2) * (i - 2)) * 2.0f,
                     (float)(i - 2) * 0.07f + sinf(t * 0.8f) * 0.04f, 1.0f, deco[i], 0, 0);
     }
     for (i = 0; i < 5; i++) {
         int x = SCR_W / 2 - 105 + i * 42;
-        int y = 18 + (int)(sinf((float)frame * 0.07f + (float)i * 0.8f) * 5.0f);
+        int y = 14 + (int)(sinf((float)frame * 0.07f + (float)i * 0.8f) * 5.0f);
         gfx_text(x + 2, y + 3, 7, RGBA(0, 0, 0, 120), letters[i]);
         gfx_text(x, y, 7, COL_BRASS, letters[i]);
     }
-    gfx_text_center(SCR_W / 2, 98, 1, COL_TEXT, "Un roguelike de póker para PSP");
+    gfx_text_center(SCR_W / 2, 92, 1, COL_TEXT, T("Un roguelike de póker para PSP", "A poker roguelike for PSP"));
 
     for (i = 0; i < n; i++) {
-        const char *label = ids[i] == TI_CONTINUE ? "Continuar partida"
-                          : ids[i] == TI_NEW ? "Nueva partida" : "Colección y récords";
-        int y = 208 + i * 15;
+        const char *label;
+        int y = 196 + i * 15;
+        switch (ids[i]) {
+        case TI_CONTINUE:   label = T("Continuar partida", "Continue run"); break;
+        case TI_NEW:        label = T("Nueva partida", "New run"); break;
+        case TI_COLLECTION: label = T("Colección y récords", "Collection & records"); break;
+        default:            label = T("Opciones", "Options"); break;
+        }
         if (i == titleSel) {
             int grow = (int)(selPulse * 3.0f);
             gfx_rect(160 - grow, y - 3, 160 + grow * 2, 14, COL_BOX);
@@ -850,19 +871,153 @@ static void draw_title(void)
         gfx_text_center(SCR_W / 2, y, 1, i == titleSel ? COL_TEXT : COL_DIM, label);
     }
     if (save_has_run() && ids[titleSel < n ? titleSel : 0] == TI_NEW)
-        gfx_text_center(SCR_W / 2, 258, 1, COL_MULT, "Empezar otra borra la partida guardada.");
-    gfx_text(6, 258, 1, COL_DIM, "v0.4");
+        gfx_text_center(SCR_W / 2, 258, 1, COL_MULT,
+                        T("Empezar otra borra la partida guardada.", "Starting a new one erases your saved run."));
+    gfx_text(6, 258, 1, COL_DIM, "v0.5");
+}
+
+/* ---------------------------------------------------------------- opciones */
+
+enum { OPT_MUSIC, OPT_SFX, OPT_LANG, OPT_BACK, OPT_COUNT };
+
+static int optMusic = 7, optSfx = 10, optLang = LANG_AUTO, optDirty;
+
+static void apply_lang(void)
+{
+    if (optLang == LANG_SET_ES) game_lang = LANG_ES;
+    else if (optLang == LANG_SET_EN) game_lang = LANG_EN;
+    else game_lang = plat_system_lang();
+}
+
+static void options_load(void)
+{
+    const Profile *p = save_profile();
+    optMusic = p->musicVol;
+    optSfx = p->sfxVol;
+    optLang = p->lang;
+    optDirty = 0;
+    synth_set_volume(optMusic, optSfx);
+    apply_lang();
+}
+
+/* Cambia una opcion: se nota al momento y se guarda al salir del menu */
+static void options_change(int which, int d)
+{
+    switch (which) {
+    case OPT_MUSIC:
+        optMusic += d;
+        if (optMusic < 0) optMusic = 0;
+        if (optMusic > 10) optMusic = 10;
+        break;
+    case OPT_SFX:
+        optSfx += d;
+        if (optSfx < 0) optSfx = 0;
+        if (optSfx > 10) optSfx = 10;
+        break;
+    case OPT_LANG:
+        optLang = (optLang + 3 + d) % 3;
+        apply_lang();
+        break;
+    default:
+        return;
+    }
+    synth_set_volume(optMusic, optSfx);
+    snd_select(d > 0);          /* asi se oye el volumen nuevo de los efectos */
+    selPulse = 1.0f;
+    optDirty = 1;
+}
+
+static void options_commit(void)
+{
+    if (!optDirty) return;
+    save_set_options(optMusic, optSfx, optLang);
+    optDirty = 0;
+}
+
+static void update_options(void)
+{
+    if (input_repeat(BTN_UP))   { optSel = (optSel + OPT_COUNT - 1) % OPT_COUNT; snd_move(); selPulse = 1.0f; }
+    if (input_repeat(BTN_DOWN)) { optSel = (optSel + 1) % OPT_COUNT; snd_move(); selPulse = 1.0f; }
+    if (input_repeat(BTN_LEFT))  options_change(optSel, -1);
+    if (input_repeat(BTN_RIGHT)) options_change(optSel, 1);
+    if (input_pressed(BTN_CROSS) && optSel == OPT_LANG) options_change(OPT_LANG, 1);
+    if (input_pressed(BTN_CIRCLE) || (input_pressed(BTN_CROSS) && optSel == OPT_BACK)) {
+        options_commit();
+        set_state(ST_TITLE);
+        snd_select(0);
+    }
+}
+
+/* Barra de volumen: diez casillas */
+static void draw_volume(int x, int y, int v, int on)
+{
+    int i;
+    for (i = 0; i < 10; i++)
+        gfx_rect(x + i * 9, y, 7, 8, i < v ? (on ? COL_MONEY : COL_DIM) : RGB(70, 54, 62));
+}
+
+static const char *lang_label(void)
+{
+    if (optLang == LANG_SET_ES) return "Español";
+    if (optLang == LANG_SET_EN) return "English";
+    return plat_system_lang() == LANG_EN ? T("Automático (inglés)", "Automatic (English)")
+                                         : T("Automático (español)", "Automatic (Spanish)");
+}
+
+static void draw_options(void)
+{
+    char b[64];
+    int i;
+
+    draw_bg();
+    gfx_shake(shakeX, shakeY);
+    popin_begin();
+    draw_panel(100, 46, 280, 180);
+    gfx_text_center(SCR_W / 2, 54, 2, COL_BRASS, T("OPCIONES", "OPTIONS"));
+    for (i = 0; i < OPT_COUNT; i++) {
+        int y = 92 + i * 24, on = (i == optSel);
+        unsigned int col = on ? COL_TEXT : COL_DIM;
+        if (on) {
+            int grow = (int)(selPulse * 2.0f);
+            gfx_rect(110, y - 5 - grow, 260, 18 + grow * 2, COL_BOX);
+            gfx_rect(110, y - 5 - grow, 3, 18 + grow * 2, COL_BRASS);
+        }
+        switch (i) {
+        case OPT_MUSIC:
+            gfx_text(122, y, 1, col, T("Música", "Music"));
+            draw_volume(268, y, optMusic, on);
+            break;
+        case OPT_SFX:
+            gfx_text(122, y, 1, col, T("Efectos", "Effects"));
+            draw_volume(268, y, optSfx, on);
+            break;
+        case OPT_LANG:
+            gfx_text(122, y, 1, col, T("Idioma", "Language"));
+            snprintf(b, sizeof(b), "< %s >", lang_label());
+            gfx_text_right(360, y, 1, on ? COL_MONEY : COL_DIM, b);
+            break;
+        default:
+            gfx_text(122, y, 1, col, T("Volver", "Back"));
+            break;
+        }
+    }
+    gfx_text_center(SCR_W / 2, 204, 1, COL_DIM, T("< > Cambiar   " G_CIRCLE " Volver", "< > Change   " G_CIRCLE " Back"));
+    gfx_xform_off();
+    gfx_shake(0, 0);
 }
 
 /* ---------------------------------------------------- eleccion de baraja */
 
+#define DECK_SEED_ROW DECK_COUNT     /* la fila de debajo de las barajas es la semilla */
+
 static void start_new_run(int deck, int difficulty)
 {
+    unsigned int seed = plat_ticks() ^ ((unsigned int)frame * 2654435761u);
 #ifdef AUTOTEST
-    game_new_run(&g, AUTOTEST_SEED, deck, difficulty);
-#else
-    game_new_run(&g, plat_ticks() ^ ((unsigned int)frame * 2654435761u), deck, difficulty);
+    seed = AUTOTEST_SEED;
 #endif
+    if (seedCustom) seed = seedValue;
+    game_new_run(&g, seed, deck, difficulty);
 #if defined(AUTOTEST) && AUTOTEST == 2
     /* esta variante empieza con un amuleto de "cartas en mano" para poder capturar ese efecto */
     g.relics[0] = R_LASTRE;
@@ -874,12 +1029,43 @@ static void start_new_run(int deck, int difficulty)
     start_intro();
 }
 
+/* Editor de la semilla: ocho cifras hexadecimales */
+static void update_seed_edit(void)
+{
+    int sh = (7 - seedDigit) * 4, d = 0;
+    unsigned int dig = (seedValue >> sh) & 15u;
+
+    if (input_repeat(BTN_LEFT))  { seedDigit = (seedDigit + 7) % 8; snd_move(); }
+    if (input_repeat(BTN_RIGHT)) { seedDigit = (seedDigit + 1) % 8; snd_move(); }
+    if (input_repeat(BTN_UP)) d = 1;
+    if (input_repeat(BTN_DOWN)) d = 15;
+    if (d) {
+        dig = (dig + (unsigned int)d) & 15u;
+        seedValue = (seedValue & ~(15u << sh)) | (dig << sh);
+        snd_tick((float)dig / 15.0f);
+    }
+    if (input_pressed(BTN_CROSS)) {
+        seedEdit = 0;
+        seedCustom = 1;
+        snd_select(1);
+    }
+    if (input_pressed(BTN_CIRCLE)) {
+        seedEdit = 0;
+        snd_select(0);
+    }
+}
+
 static void update_deck(void)
 {
     int maxDiff = save_profile()->maxDifficulty;
     if (diffSel > maxDiff) diffSel = maxDiff;
-    if (input_repeat(BTN_UP))   { deckSel = (deckSel + DECK_COUNT - 1) % DECK_COUNT; snd_move(); selPulse = 1.0f; }
-    if (input_repeat(BTN_DOWN)) { deckSel = (deckSel + 1) % DECK_COUNT; snd_move(); selPulse = 1.0f; }
+
+    if (seedEdit) {
+        update_seed_edit();
+        return;
+    }
+    if (input_repeat(BTN_UP))   { deckSel = (deckSel + DECK_COUNT) % (DECK_COUNT + 1); snd_move(); selPulse = 1.0f; }
+    if (input_repeat(BTN_DOWN)) { deckSel = (deckSel + 1) % (DECK_COUNT + 1); snd_move(); selPulse = 1.0f; }
     if (maxDiff > 0) {
         if (input_repeat(BTN_LEFT))  { diffSel = (diffSel + maxDiff) % (maxDiff + 1); snd_move(); }
         if (input_repeat(BTN_RIGHT)) { diffSel = (diffSel + 1) % (maxDiff + 1); snd_move(); }
@@ -887,6 +1073,25 @@ static void update_deck(void)
     if (input_pressed(BTN_CIRCLE)) {
         set_state(ST_TITLE);
         snd_select(0);
+        return;
+    }
+    if (deckSel == DECK_SEED_ROW) {
+        if (input_pressed(BTN_SQUARE) && seedCustom) {      /* vuelve a una semilla al azar */
+            seedCustom = 0;
+            snd_select(0);
+        }
+        if (stateAge > 6 && input_pressed(BTN_CROSS)) {
+            if (!seedCustom) {
+#ifdef AUTOTEST
+                seedValue = AUTOTEST_SEED;
+#else
+                seedValue = plat_ticks() * 2654435761u;
+#endif
+            }
+            seedEdit = 1;
+            seedDigit = 0;
+            snd_select(1);
+        }
         return;
     }
     if (stateAge > 6 && input_pressed(BTN_CROSS)) {
@@ -901,44 +1106,91 @@ static void update_deck(void)
 
 static void draw_deck(void)
 {
-    char b[200];
-    int d, maxDiff = save_profile()->maxDifficulty;
+    char b[220];
+    int d, maxDiff = save_profile()->maxDifficulty, onSeed = (deckSel == DECK_SEED_ROW);
+    const char *help;
 
     draw_bg();
     gfx_shake(shakeX, shakeY);
     popin_begin();
-    draw_panel(70, 18, 340, 236);
-    gfx_text_center(SCR_W / 2, 24, 2, COL_BRASS, "ELIGE UNA BARAJA");
+    draw_panel(70, 12, 340, 248);
+    gfx_text_center(SCR_W / 2, 18, 2, COL_BRASS, T("ELIGE UNA BARAJA", "CHOOSE A DECK"));
     for (d = 0; d < DECK_COUNT; d++) {
-        int y = 52 + d * 17, open = save_deck_unlocked(d);
+        int y = 44 + d * 15, open = save_deck_unlocked(d);
         if (d == deckSel) {
-            int grow = (int)(selPulse * 3.0f);
-            gfx_rect(80, y - 3 - grow, 320, 15 + grow * 2, COL_BOX);
-            gfx_rect(80, y - 3 - grow, 3, 15 + grow * 2, COL_BRASS);
+            int grow = (int)(selPulse * 2.0f);
+            gfx_rect(80, y - 3 - grow, 320, 13 + grow * 2, COL_BOX);
+            gfx_rect(80, y - 3 - grow, 3, 13 + grow * 2, COL_BRASS);
         }
-        gfx_text(92, y, 1, open ? COL_TEXT : COL_DIM, DECK_INFO[d].name);
-        if (!open) gfx_text_right(390, y, 1, COL_MULT, "bloqueada");
+        gfx_text(92, y, 1, open ? COL_TEXT : COL_DIM, DECK_INFO[d].name[LANG]);
+        if (!open) gfx_text_right(390, y, 1, COL_MULT, T("bloqueada", "locked"));
     }
 
-    gfx_text(92, 142, 1, COL_DIM, "Dificultad");
-    if (maxDiff > 0) snprintf(b, sizeof(b), "<  %s  >", DIFF_INFO[diffSel].name);
-    else snprintf(b, sizeof(b), "%s", DIFF_INFO[0].name);
-    gfx_text_right(390, 142, 1, diffSel == 0 ? COL_TEXT : (diffSel == 1 ? COL_MONEY : COL_MULT), b);
+    /* dificultad: se cambia con izquierda/derecha desde cualquier fila */
+    gfx_text(92, 124, 1, COL_DIM, T("Dificultad", "Difficulty"));
+    if (maxDiff > 0) snprintf(b, sizeof(b), "<  %s  >", DIFF_INFO[diffSel].name[LANG]);
+    else snprintf(b, sizeof(b), "%s", DIFF_INFO[0].name[LANG]);
+    gfx_text_right(390, 124, 1, diffSel == 0 ? COL_TEXT : (diffSel == 1 ? COL_MONEY : COL_MULT), b);
 
-    gfx_rect(80, 158, 320, 64, COL_BOX);
-    if (save_deck_unlocked(deckSel)) {
-        gfx_text_wrap(88, 162, 304, 1, COL_TEXT, DECK_INFO[deckSel].desc);
+    /* semilla */
+    if (onSeed) {
+        int grow = (int)(selPulse * 2.0f);
+        gfx_rect(80, 137 - grow, 320, 13 + grow * 2, COL_BOX);
+        gfx_rect(80, 137 - grow, 3, 13 + grow * 2, COL_BRASS);
+    }
+    gfx_text(92, 140, 1, onSeed ? COL_TEXT : COL_DIM, T("Semilla", "Seed"));
+    if (seedEdit) {
+        int k;
+        for (k = 0; k < 8; k++) {
+            unsigned int dig = (seedValue >> ((7 - k) * 4)) & 15u;
+            char s[2];
+            int x = 342 + k * 6;
+            s[0] = (char)(dig < 10 ? '0' + dig : 'A' + dig - 10);
+            s[1] = 0;
+            if (k == seedDigit) gfx_rect(x - 1, 138, 7, 11, COL_MONEY);
+            gfx_text(x, 140, 1, k == seedDigit ? COL_PANEL : COL_TEXT, s);
+        }
+    } else if (seedCustom) {
+        snprintf(b, sizeof(b), "%08X", seedValue);
+        gfx_text_right(390, 140, 1, COL_MONEY, b);
     } else {
-        snprintf(b, sizeof(b), "%s Para abrirla: %s", DECK_INFO[deckSel].desc, DECK_INFO[deckSel].unlock);
-        gfx_text_wrap(88, 162, 304, 1, COL_DIM, b);
+        gfx_text_right(390, 140, 1, COL_DIM, T("al azar", "random"));
     }
-    if (maxDiff > 0) snprintf(b, sizeof(b), "%s: %s", DIFF_INFO[diffSel].name, DIFF_INFO[diffSel].desc);
-    else snprintf(b, sizeof(b), "Gana una partida para abrir dificultades más altas.");
-    gfx_text_wrap(88, 188, 304, 1, COL_DIM, b);
 
-    gfx_text_center(SCR_W / 2, 234, 1, COL_TEXT,
-                    maxDiff > 0 ? G_CROSS " Elegir   < > Dificultad   " G_CIRCLE " Volver"
-                                : G_CROSS " Elegir    " G_CIRCLE " Volver");
+    /* descripcion de lo elegido */
+    gfx_rect(80, 156, 320, 66, COL_BOX);
+    if (onSeed) {
+        gfx_text_wrap(88, 160, 304, 1, COL_TEXT,
+                      T("La misma semilla da el mismo mazo y las mismas tiendas si juegas igual. "
+                        "Sirve para repetir una partida o compartirla.",
+                        "The same seed gives the same deck and the same shops if you play the same way. "
+                        "Use it to replay a run or to share it."));
+    } else {
+        if (save_deck_unlocked(deckSel)) {
+            gfx_text_wrap(88, 160, 304, 1, COL_TEXT, DECK_INFO[deckSel].desc[LANG]);
+        } else {
+            snprintf(b, sizeof(b), T("%s Para abrirla: %s", "%s To unlock: %s"),
+                     DECK_INFO[deckSel].desc[LANG], DECK_INFO[deckSel].unlock[LANG]);
+            gfx_text_wrap(88, 160, 304, 1, COL_DIM, b);
+        }
+        if (maxDiff > 0) snprintf(b, sizeof(b), "%s: %s", DIFF_INFO[diffSel].name[LANG], DIFF_INFO[diffSel].desc[LANG]);
+        else snprintf(b, sizeof(b), "%s", T("Gana una partida para abrir dificultades más altas.",
+                                           "Win a run to unlock higher difficulties."));
+        gfx_text_wrap(88, 190, 304, 1, COL_DIM, b);
+    }
+
+    if (seedEdit)
+        help = T("Arriba/abajo cifra  < > mover  " G_CROSS " aceptar  " G_CIRCLE " cancelar",
+                 "Up/down digit  < > move  " G_CROSS " OK  " G_CIRCLE " cancel");
+    else if (onSeed)
+        help = T(G_CROSS " Editar   " G_SQUARE " Al azar   " G_CIRCLE " Volver",
+                 G_CROSS " Edit   " G_SQUARE " Random   " G_CIRCLE " Back");
+    else if (maxDiff > 0)
+        help = T(G_CROSS " Elegir   < > Dificultad   " G_CIRCLE " Volver",
+                 G_CROSS " Choose   < > Difficulty   " G_CIRCLE " Back");
+    else
+        help = T(G_CROSS " Elegir    " G_CIRCLE " Volver", G_CROSS " Choose    " G_CIRCLE " Back");
+    gfx_text_center(SCR_W / 2, 234, 1, COL_TEXT, help);
     gfx_xform_off();
     gfx_shake(0, 0);
 }
@@ -949,7 +1201,9 @@ static void draw_deck(void)
 #define COL_PER_PAGE    (COL_ROWS * 2)
 #define COL_RELIC_PAGES ((R_COUNT + COL_PER_PAGE - 1) / COL_PER_PAGE)
 #define COL_TRICK_PAGE  COL_RELIC_PAGES
-#define COL_PAGES       (COL_RELIC_PAGES + 2)     /* amuletos, trucos y records */
+#define COL_RECORD_PAGE (COL_RELIC_PAGES + 1)
+#define COL_STATS_PAGE  (COL_RELIC_PAGES + 2)
+#define COL_PAGES       (COL_RELIC_PAGES + 3)     /* amuletos, trucos, records y estadisticas */
 
 /* Cuantas fichas tiene la pagina y cual es la primera */
 static int col_count(int page, int *first)
@@ -991,15 +1245,81 @@ static void record_line(int *y, const char *label, const char *value)
     *y += 13;
 }
 
+static void stat_line(int *y, const char *label, const char *value)
+{
+    gfx_text(20, *y, 1, COL_TEXT, label);
+    gfx_text_right(232, *y, 1, COL_MONEY, value);
+    *y += 14;
+}
+
+/* Estadisticas acumuladas de todas las partidas terminadas */
+static void draw_stats_page(void)
+{
+    const Profile *pr = save_profile();
+    char b[96];
+    unsigned int maxPlays = 0;
+    int i, y = 40, fav = -1, favCount = 0;
+
+    draw_panel(8, 30, 464, 218);
+
+    snprintf(b, sizeof(b), "%u", pr->totalHands);
+    stat_line(&y, T("Manos jugadas", "Hands played"), b);
+    snprintf(b, sizeof(b), "%u", pr->totalDiscards);
+    stat_line(&y, T("Descartes", "Discards"), b);
+    snprintf(b, sizeof(b), "%u", pr->totalRounds);
+    stat_line(&y, T("Rondas superadas", "Rounds won"), b);
+    snprintf(b, sizeof(b), "%u", pr->totalTricks);
+    stat_line(&y, T("Trucos usados", "Tricks used"), b);
+    snprintf(b, sizeof(b), "$%u", pr->totalEarned);
+    stat_line(&y, T("Dinero ganado", "Money earned"), b);
+
+    /* el amuleto que mas veces has comprado */
+    for (i = 0; i < R_COUNT; i++)
+        if (pr->relicBought[i] > favCount) { favCount = pr->relicBought[i]; fav = i; }
+    y += 8;
+    gfx_text(20, y, 1, COL_BRASS, T("AMULETO FAVORITO", "FAVORITE CHARM"));
+    y += 14;
+    if (fav >= 0) {
+        gfx_rect(18, y, 36, 36, RGB(44, 30, 40));
+        gfx_art(fav, 20, y + 2, 2, COL_WHITE);
+        gfx_text(62, y + 6, 1, RARITY_COL[RELIC_INFO[fav].rarity], RELIC_INFO[fav].name[LANG]);
+        snprintf(b, sizeof(b), T("Comprado %d %s", "Bought %d %s"), favCount,
+                 favCount == 1 ? T("vez", "time") : T("veces", "times"));
+        gfx_text(62, y + 20, 1, COL_DIM, b);
+    } else {
+        gfx_text(20, y + 4, 1, COL_DIM, T("Todavía ninguno.", "None yet."));
+    }
+
+    /* derecha: cuantas veces se ha jugado cada mano */
+    gfx_rect(240, 36, 1, 206, COL_BRASS);
+    gfx_text(250, 40, 1, COL_BRASS, T("MANOS JUGADAS", "HANDS PLAYED"));
+    for (i = 0; i < HT_COUNT; i++)
+        if (pr->handPlays[i] > maxPlays) maxPlays = pr->handPlays[i];
+    for (i = 0; i < HT_COUNT; i++) {
+        int yy = 56 + i * 17, w = maxPlays ? (int)(80u * pr->handPlays[i] / maxPlays) : 0;
+        gfx_text(250, yy, 1, pr->handPlays[i] ? COL_TEXT : COL_DIM, HAND_INFO[i].name[LANG]);
+        gfx_rect(356, yy + 1, 80, 7, RGB(58, 44, 52));
+        if (w > 0) gfx_rect(356, yy + 1, w, 7, COL_CHIPS);
+        snprintf(b, sizeof(b), "%u", pr->handPlays[i]);
+        gfx_text_right(466, yy, 1, COL_DIM, b);
+    }
+    gfx_text(20, 236, 1, COL_DIM, T("Cuenta las partidas terminadas.", "Counts finished runs."));
+}
+
 static void draw_collection(void)
 {
     const Profile *pr = save_profile();
     char b[200], n[40];
+    const char *title;
     int k, d;
 
     draw_bg();
-    gfx_text(14, 6, 2, COL_BRASS, colPage < COL_TRICK_PAGE ? "AMULETOS" : colPage == COL_TRICK_PAGE ? "TRUCOS" : "RECORDS");
-    snprintf(b, sizeof(b), "L <  página %d/%d  > R", colPage + 1, COL_PAGES);
+    if (colPage < COL_TRICK_PAGE) title = T("AMULETOS", "CHARMS");
+    else if (colPage == COL_TRICK_PAGE) title = T("TRUCOS", "TRICKS");
+    else if (colPage == COL_RECORD_PAGE) title = T("RÉCORDS", "RECORDS");
+    else title = T("ESTADÍSTICAS", "STATISTICS");
+    gfx_text(14, 6, 2, COL_BRASS, title);
+    snprintf(b, sizeof(b), T("L <  página %d/%d  > R", "L <  page %d/%d  > R"), colPage + 1, COL_PAGES);
     gfx_text_right(466, 12, 1, COL_DIM, b);
 
     if (colPage <= COL_TRICK_PAGE) {
@@ -1021,49 +1341,54 @@ static void draw_collection(void)
             /* lo que aun no se ha descubierto se ve como una silueta */
             gfx_art(tricks ? TRICK_ART(id) : id, x, y, 1, found ? COL_WHITE : RGB(58, 48, 58));
             gfx_text(x + 22, y + 3, 1, found ? col : COL_DIM,
-                     found ? (tricks ? TRICK_INFO[id].name : RELIC_INFO[id].name) : "???");
+                     found ? (tricks ? TRICK_INFO[id].name[LANG] : RELIC_INFO[id].name[LANG]) : "???");
         }
 
         draw_panel(8, 214, 464, 38);
         gfx_art(tricks ? TRICK_ART(cur) : cur, 12, 217, 2, curFound ? COL_WHITE : RGB(58, 48, 58));
         if (curFound) {
-            if (tricks) snprintf(b, sizeof(b), "%s", TRICK_INFO[cur].desc);
-            else snprintf(b, sizeof(b), "[%s] %s", RARITY_NAME[RELIC_INFO[cur].rarity], RELIC_INFO[cur].desc);
+            if (tricks) snprintf(b, sizeof(b), "%s", TRICK_INFO[cur].desc[LANG]);
+            else snprintf(b, sizeof(b), "[%s] %s", RARITY_NAME[LANG][RELIC_INFO[cur].rarity], RELIC_INFO[cur].desc[LANG]);
             gfx_text_wrap(52, 219, 412, 1, COL_TEXT, b);
         } else {
-            gfx_text_wrap(52, 219, 412, 1, COL_DIM, "Sin descubrir. Cómpralo en una tienda para verlo aquí.");
+            gfx_text_wrap(52, 219, 412, 1, COL_DIM, T("Sin descubrir. Cómpralo en una tienda para verlo aquí.",
+                                                       "Not discovered yet. Buy it in a shop to see it here."));
         }
-        if (tricks) snprintf(b, sizeof(b), "Descubiertos: %d/%d", save_trick_found_count(), T_COUNT);
-        else snprintf(b, sizeof(b), "Descubiertos: %d/%d", save_found_count(), R_COUNT);
+        if (tricks) snprintf(b, sizeof(b), T("Descubiertos: %d/%d", "Discovered: %d/%d"), save_trick_found_count(), T_COUNT);
+        else snprintf(b, sizeof(b), T("Descubiertos: %d/%d", "Discovered: %d/%d"), save_found_count(), R_COUNT);
         gfx_text_right(472, 258, 1, COL_TEXT, b);
-    } else {
+    } else if (colPage == COL_RECORD_PAGE) {
         int y = 42;
         draw_panel(60, 34, 360, 216);
 
         snprintf(b, sizeof(b), "%u", pr->runs);
-        record_line(&y, "Partidas jugadas", b);
+        record_line(&y, T("Partidas jugadas", "Runs played"), b);
         snprintf(b, sizeof(b), "%u", pr->wins);
-        record_line(&y, "Victorias", b);
-        snprintf(b, sizeof(b), "%d mesa%s superada%s", pr->bestMesa, pr->bestMesa == 1 ? "" : "s", pr->bestMesa == 1 ? "" : "s");
-        record_line(&y, "Mejor partida", b);
+        record_line(&y, T("Victorias", "Wins"), b);
+        if (LANG) snprintf(b, sizeof(b), "%d table%s cleared", pr->bestMesa, pr->bestMesa == 1 ? "" : "s");
+        else snprintf(b, sizeof(b), "%d mesa%s superada%s", pr->bestMesa, pr->bestMesa == 1 ? "" : "s",
+                      pr->bestMesa == 1 ? "" : "s");
+        record_line(&y, T("Mejor partida", "Best run"), b);
         fmt_ll(n, pr->bestHand);
-        record_line(&y, "Mejor jugada", n);
+        record_line(&y, T("Mejor jugada", "Best hand"), n);
         snprintf(b, sizeof(b), "%d/%d", save_found_count(), R_COUNT);
-        record_line(&y, "Amuletos descubiertos", b);
+        record_line(&y, T("Amuletos descubiertos", "Charms discovered"), b);
         snprintf(b, sizeof(b), "%d/%d", save_trick_found_count(), T_COUNT);
-        record_line(&y, "Trucos descubiertos", b);
-        record_line(&y, "Dificultad más alta abierta", DIFF_INFO[pr->maxDifficulty].name);
+        record_line(&y, T("Trucos descubiertos", "Tricks discovered"), b);
+        record_line(&y, T("Dificultad más alta abierta", "Highest difficulty unlocked"), DIFF_INFO[pr->maxDifficulty].name[LANG]);
 
         y += 6;
-        gfx_text(76, y, 1, COL_BRASS, "BARAJAS");
+        gfx_text(76, y, 1, COL_BRASS, T("BARAJAS", "DECKS"));
         for (d = 0; d < DECK_COUNT; d++) {
             int open = save_deck_unlocked(d);
             y += 13;
-            gfx_text(76, y, 1, open ? COL_TEXT : COL_DIM, DECK_INFO[d].name);
-            gfx_text_right(404, y, 1, open ? COL_GOOD : COL_DIM, open ? "abierta" : DECK_INFO[d].unlock);
+            gfx_text(76, y, 1, open ? COL_TEXT : COL_DIM, DECK_INFO[d].name[LANG]);
+            gfx_text_right(404, y, 1, open ? COL_GOOD : COL_DIM, open ? T("abierta", "unlocked") : DECK_INFO[d].unlock[LANG]);
         }
+    } else {
+        draw_stats_page();
     }
-    gfx_text(8, 258, 1, COL_DIM, "L/R Página   " G_CIRCLE " Volver");
+    gfx_text(8, 258, 1, COL_DIM, T("L/R Página   " G_CIRCLE " Volver", "L/R Page   " G_CIRCLE " Back"));
 }
 
 /* ------------------------------------------------------------ intro ronda */
@@ -1090,52 +1415,63 @@ static void draw_intro(void)
     gfx_shake(shakeX, shakeY);
     popin_begin();
     draw_panel(90, 30, 300, 212);
-    if (g.endless) snprintf(b, sizeof(b), "MESA %d - INFINITO", g.mesa + 1);
-    else snprintf(b, sizeof(b), "MESA %d DE %d", g.mesa + 1, NUM_MESAS);
+    if (g.endless) snprintf(b, sizeof(b), T("MESA %d - INFINITO", "TABLE %d - ENDLESS"), g.mesa + 1);
+    else snprintf(b, sizeof(b), T("MESA %d DE %d", "TABLE %d OF %d"), g.mesa + 1, NUM_MESAS);
     gfx_text_center(cx, 40, 2, COL_BRASS, b);
-    snprintf(b, sizeof(b), "Ronda %d de 3", g.round + 1);
+    snprintf(b, sizeof(b), T("Ronda %d de 3", "Round %d of 3"), g.round + 1);
     gfx_text_center(cx, 64, 1, COL_DIM, b);
     text_fit_center(cx + (boss && stateAge < 30 ? vrand() % 3 - 1 : 0), 78, 280,
                     boss ? COL_MULT : COL_TEXT, round_name());
 
     gfx_rect(110, 106, 260, 50, COL_BOX);
-    gfx_text_center(cx, 108, 1, COL_DIM, "Objetivo");
+    gfx_text_center(cx, 108, 1, COL_DIM, T("Objetivo", "Target"));
     fmt_ll(b, (long long)((double)g.target * (double)k + 0.5));
     gfx_text_center(cx, 120, 3, k >= 1.0f ? COL_TEXT : COL_MONEY, b);
 
-    snprintf(b, sizeof(b), "Premio: $%d", game_round_prize(&g));
+    snprintf(b, sizeof(b), T("Premio: $%d", "Prize: $%d"), game_round_prize(&g));
     gfx_text_center(cx, 162, 1, COL_MONEY, b);
 
     if (boss) {
         boss_desc(b, sizeof(b));
-        gfx_text_wrap(106, 178, 270, 1, COL_MULT, b);
+        gfx_rect(100, 168, 52, 52, RGB(44, 30, 40));
+        gfx_frame(100, 168, 52, 52, 1, COL_MULT);
+        gfx_art(BOSS_ART(g.bossRule), 102, 170, 3, COL_WHITE);
+        gfx_text_wrap(160, 176, 216, 1, COL_MULT, b);
     } else {
-        gfx_text_center(cx, 182, 1, COL_DIM, "Sin reglas especiales.");
+        gfx_text_center(cx, 182, 1, COL_DIM, T("Sin reglas especiales.", "No special rules."));
     }
-    gfx_text_center(cx, 224, 1, COL_TEXT, G_CROSS " Empezar");
+    gfx_text_center(cx, 224, 1, COL_TEXT, T(G_CROSS " Empezar", G_CROSS " Start"));
     gfx_xform_off();
     gfx_shake(0, 0);
 }
 
 /* ----------------------------------------------------------------- juego */
 
+enum { PA_CONTINUE, PA_MUSIC, PA_SFX, PA_QUIT, PA_COUNT };
+
 static void update_pause(void)
 {
     if (input_pressed(BTN_START) || input_pressed(BTN_CIRCLE)) {
         paused = 0;
+        options_commit();
         return;
     }
-    if (input_repeat(BTN_UP))   { pauseSel = (pauseSel + 2) % 3; snd_move(); }
-    if (input_repeat(BTN_DOWN)) { pauseSel = (pauseSel + 1) % 3; snd_move(); }
+    if (input_repeat(BTN_UP))   { pauseSel = (pauseSel + PA_COUNT - 1) % PA_COUNT; snd_move(); }
+    if (input_repeat(BTN_DOWN)) { pauseSel = (pauseSel + 1) % PA_COUNT; snd_move(); }
+    if (pauseSel == PA_MUSIC || pauseSel == PA_SFX) {
+        int which = pauseSel == PA_MUSIC ? OPT_MUSIC : OPT_SFX;
+        if (input_repeat(BTN_LEFT))  options_change(which, -1);
+        if (input_repeat(BTN_RIGHT)) options_change(which, 1);
+    }
     if (input_pressed(BTN_CROSS)) {
-        if (pauseSel == 1) {
-            synth_set_music(!synth_get_music());
-            save_set_music(synth_get_music());
-            snd_select(synth_get_music());
-            return;
+        if (pauseSel == PA_CONTINUE) {
+            paused = 0;
+            options_commit();
+        } else if (pauseSel == PA_QUIT) {
+            paused = 0;
+            options_commit();
+            set_state(ST_TITLE);
         }
-        paused = 0;
-        if (pauseSel == 2) set_state(ST_TITLE);
     }
 }
 
@@ -1181,12 +1517,12 @@ static void update_tricks(void)
     } else {
         if (code == TRICK_NEED_CARDS) {
             if (info->minSel == info->maxSel)
-                snprintf(msg, sizeof(msg), "Elige %d carta%s antes", info->minSel, info->minSel == 1 ? "" : "s");
+                snprintf(msg, sizeof(msg), T("Elige %d carta%s antes", "Pick %d card%s first"), info->minSel, info->minSel == 1 ? "" : "s");
             else
-                snprintf(msg, sizeof(msg), "Elige de %d a %d cartas antes", info->minSel, info->maxSel);
+                snprintf(msg, sizeof(msg), T("Elige de %d a %d cartas antes", "Pick %d to %d cards first"), info->minSel, info->maxSel);
             toast(msg);
         } else {
-            toast("Ahora no tiene efecto");
+            toast(T("Ahora no tiene efecto", "No effect right now"));
         }
         snd_error();
         shake += 2.0f;
@@ -1215,7 +1551,7 @@ static void update_select(void)
             if (trickSel >= g.trickCount) trickSel = 0;
             snd_select(1);
         } else {
-            toast("No tienes trucos");
+            toast(T("No tienes trucos", "You have no tricks"));
             snd_error();
         }
         return;
@@ -1229,7 +1565,7 @@ static void update_select(void)
             || (input_pressed(BTN_DOWN) && g.sel[cursor])) {
             int id = g.hand[cursor].id;
             if (!g.sel[cursor] && game_selected_count(&g) >= MAX_PLAY) {
-                toast("Máximo 5 cartas");
+                toast(T("Máximo 5 cartas", "5 cards at most"));
                 snd_error();
             } else {
                 game_toggle_select(&g, cursor);
@@ -1259,17 +1595,17 @@ static void update_select(void)
             chipsPulse = multPulse = 1.0f;
             snd_whoosh();
         } else {
-            toast(why == PLAY_NEED_FIVE ? "El Estirado exige 5 cartas" : "Elige de 1 a 5 cartas");
+            toast(why == PLAY_NEED_FIVE ? T("El Estirado exige 5 cartas", "The Snob demands 5 cards") : T("Elige de 1 a 5 cartas", "Pick 1 to 5 cards"));
             snd_error();
             shake += 2.0f;
         }
     }
     if (input_pressed(BTN_TRIANGLE)) {
         if (g.discardsLeft <= 0) {
-            toast("No te quedan descartes");
+            toast(T("No te quedan descartes", "No discards left"));
             snd_error();
         } else if (game_selected_count(&g) == 0) {
-            toast("Elige cartas para descartar");
+            toast(T("Elige cartas para descartar", "Pick cards to discard"));
             snd_error();
         } else {
             for (i = 0; i < g.handCount; i++)
@@ -1290,18 +1626,18 @@ static unsigned int ev_text(const ScoreEvent *e, char *b, int n)
         snprintf(b, n, "+%d", (int)e->value);
         return COL_CHIPS;
     case EV_MULT:
-        snprintf(b, n, "+%d Multi", (int)e->value);
+        snprintf(b, n, T("+%d Multi", "+%d Mult"), (int)e->value);
         return COL_MULT;
     case EV_XMULT:
         t = (int)(e->value * 10.0f + 0.5f);
-        if (t % 10) snprintf(b, n, "x%d,%d Multi", t / 10, t % 10);
-        else snprintf(b, n, "x%d Multi", t / 10);
+        if (t % 10) snprintf(b, n, T("x%d,%d Multi", "x%d.%d Mult"), t / 10, t % 10);
+        else snprintf(b, n, T("x%d Multi", "x%d Mult"), t / 10);
         return COL_MULT;
     case EV_MONEY:
         snprintf(b, n, "+$%d", (int)e->value);
         return COL_MONEY;
     default:
-        snprintf(b, n, "Anulada");
+        snprintf(b, n, T("Anulada", "Void"));
         return COL_DIM;
     }
 }
@@ -1339,7 +1675,7 @@ static void fire_event(int idx)
     }
     if (e->relic >= 0 && e->relic < g.relicCount && e->card < 0 && e->held < 0) {
         char full[48];
-        snprintf(full, sizeof(full), "%s %s", RELIC_INFO[g.relics[e->relic]].name, b);
+        snprintf(full, sizeof(full), "%s %s", RELIC_INFO[g.relics[e->relic]].name[LANG], b);
         popup_add(x, y, col, full);
     } else {
         popup_add(x, y, col, b);
@@ -1520,20 +1856,20 @@ static void update_play(void)
 
 static void draw_left(void)
 {
-    char b[64];
+    char b[128];
     int type = -1;
     int won = dispScore >= (double)g.target;
     double chips = 0, mult = 0;
     float p;
 
     draw_panel(2, 2, 126, 268);
-    if (g.endless) snprintf(b, sizeof(b), "MESA %d inf. R%d", g.mesa + 1, g.round + 1);
-    else snprintf(b, sizeof(b), "MESA %d/%d  R%d", g.mesa + 1, NUM_MESAS, g.round + 1);
+    if (g.endless) snprintf(b, sizeof(b), T("MESA %d inf. R%d", "TABLE %d inf. R%d"), g.mesa + 1, g.round + 1);
+    else snprintf(b, sizeof(b), T("MESA %d/%d  R%d", "TABLE %d/%d  R%d"), g.mesa + 1, NUM_MESAS, g.round + 1);
     gfx_text(8, 5, 1, COL_BRASS, b);
     gfx_text(8, 16, 1, g.round == 2 ? COL_MULT : COL_TEXT, round_name());
 
     gfx_rect(6, 29, 118, 31, COL_BOX);
-    gfx_text(10, 29, 1, COL_DIM, "Objetivo");
+    gfx_text(10, 29, 1, COL_DIM, T("Objetivo", "Target"));
     fmt_ll(b, g.target);
     text_fit_center(65, 39, 112, COL_TEXT, b);
 
@@ -1541,7 +1877,7 @@ static void draw_left(void)
     if (p > 0.02f) gfx_xform(65.0f, 78.0f, 0.0f, 1.0f + 0.10f * p);
     gfx_rect(6, 63, 118, 31, col_lerp(COL_BOX, won ? RGB(70, 110, 60) : RGB(110, 90, 50), p));
     if (won) gfx_frame(6, 63, 118, 31, 1, COL_GOOD);
-    gfx_text(10, 63, 1, COL_DIM, "Puntos");
+    gfx_text(10, 63, 1, COL_DIM, T("Puntos", "Score"));
     fmt_ll(b, (long long)(dispScore + 0.5));
     text_fit_center(65, 73, 112, won ? COL_GOOD : COL_MONEY, b);
     gfx_xform_off();
@@ -1565,11 +1901,11 @@ static void draw_left(void)
         mult = shownMult;
     }
     if (type >= 0) {
-        gfx_text(8, 98, 1, COL_TEXT, HAND_INFO[type].name);
-        snprintf(b, sizeof(b), "nv.%d", g.handLevel[type]);
+        gfx_text(8, 98, 1, COL_TEXT, HAND_INFO[type].name[LANG]);
+        snprintf(b, sizeof(b), T("nv.%d", "lv.%d"), g.handLevel[type]);
         gfx_text_right(122, 98, 1, COL_DIM, b);
     } else if (phase == PH_SELECT) {
-        gfx_text(8, 98, 1, COL_DIM, "Elige cartas");
+        gfx_text(8, 98, 1, COL_DIM, T("Elige cartas", "Pick cards"));
     }
     gfx_text_center(65, 116, 1, COL_TEXT, "x");
 
@@ -1589,8 +1925,8 @@ static void draw_left(void)
 
     gfx_rect(6, 139, 38, 32, COL_BOX);
     gfx_rect(46, 139, 38, 32, COL_BOX);
-    gfx_text_center(25, 139, 1, COL_CHIPS, "Jug.");
-    gfx_text_center(65, 139, 1, COL_MULT, "Desc.");
+    gfx_text_center(25, 139, 1, COL_CHIPS, T("Jug.", "Hands"));
+    gfx_text_center(65, 139, 1, COL_MULT, T("Desc.", "Disc."));
     snprintf(b, sizeof(b), "%d", g.handsLeft);
     gfx_text_center(25, 150, 2, g.handsLeft == 1 ? COL_HOT : COL_TEXT, b);
     snprintf(b, sizeof(b), "%d", g.discardsLeft);
@@ -1606,8 +1942,11 @@ static void draw_left(void)
     if (g.bossRule != B_NONE) {
         boss_desc(b, sizeof(b));
         gfx_text_wrap(8, 180, 116, 1, COL_MULT, b);
+        gfx_rect(88, 222, 36, 36, RGB(44, 30, 40));
+        gfx_frame(88, 222, 36, 36, 1, COL_MULT);
+        gfx_art(BOSS_ART(g.bossRule), 90, 224, 2, COL_WHITE);
     }
-    snprintf(b, sizeof(b), "Mazo %d/%d", g.drawCount, game_deck_alive(&g));
+    snprintf(b, sizeof(b), T("Mazo %d/%d", "Deck %d/%d"), g.drawCount, game_deck_alive(&g));
     gfx_text(8, 256, 1, COL_DIM, b);
 }
 
@@ -1654,22 +1993,54 @@ static void draw_relics(void)
 
 #define INFO_PAGES 3
 
-/* Abre, cierra y pasa de pagina. Devuelve 1 mientras la informacion esta en pantalla. */
+/* Abre, cierra y pasa de pagina. Devuelve 1 mientras la informacion esta en pantalla.
+   En la pagina de amuletos, X coge uno y arriba/abajo lo cambia de sitio. */
 static int update_info(void)
 {
     if (input_pressed(BTN_SELECT)) {
         showInfo = !showInfo;
+        infoHeld = 0;
         snd_select(showInfo);
         return 1;
     }
     if (!showInfo) return 0;
     if (input_pressed(BTN_CIRCLE)) {
-        showInfo = 0;
+        if (infoHeld) infoHeld = 0;
+        else showInfo = 0;
         snd_select(0);
         return 1;
     }
-    if (input_pressed(BTN_L) || input_repeat(BTN_LEFT))  { infoPage = (infoPage + INFO_PAGES - 1) % INFO_PAGES; snd_move(); }
-    if (input_pressed(BTN_R) || input_repeat(BTN_RIGHT)) { infoPage = (infoPage + 1) % INFO_PAGES; snd_move(); }
+    if (input_pressed(BTN_L) || input_repeat(BTN_LEFT)) {
+        infoPage = (infoPage + INFO_PAGES - 1) % INFO_PAGES;
+        infoHeld = 0;
+        snd_move();
+    }
+    if (input_pressed(BTN_R) || input_repeat(BTN_RIGHT)) {
+        infoPage = (infoPage + 1) % INFO_PAGES;
+        infoHeld = 0;
+        snd_move();
+    }
+    if (infoPage == 1 && g.relicCount > 0) {
+        int d = 0;
+        if (infoSel >= g.relicCount) infoSel = g.relicCount - 1;
+        if (input_pressed(BTN_CROSS) && g.relicCount > 1) {
+            infoHeld = !infoHeld;
+            snd_select(infoHeld);
+        }
+        if (input_repeat(BTN_UP)) d = -1;
+        if (input_repeat(BTN_DOWN)) d = 1;
+        if (d && infoHeld) {
+            int to = game_move_relic(&g, infoSel, d);
+            if (to != infoSel) {
+                infoSel = to;
+                relicPop[to] = 0.6f;
+                snd_whoosh();
+            }
+        } else if (d && infoSel + d >= 0 && infoSel + d < g.relicCount) {
+            infoSel += d;
+            snd_move();
+        }
+    }
     return 1;
 }
 
@@ -1678,15 +2049,15 @@ static void info_hands(void)
     char b[96];
     int i, y;
 
-    gfx_text(16, 30, 1, COL_DIM, "Mano");
-    gfx_text(150, 30, 1, COL_DIM, "Nv");
-    gfx_text(176, 30, 1, COL_DIM, "Fichas x Multi");
-    gfx_text(280, 30, 1, COL_DIM, "Jugada");
+    gfx_text(16, 30, 1, COL_DIM, T("Mano", "Hand"));
+    gfx_text(150, 30, 1, COL_DIM, T("Nv", "Lv"));
+    gfx_text(176, 30, 1, COL_DIM, T("Fichas x Multi", "Chips x Mult"));
+    gfx_text(280, 30, 1, COL_DIM, T("Jugada", "Played"));
     for (i = 0; i < HT_COUNT; i++) {
         int bc, bm;
         y = 44 + i * 13;
         game_hand_base(&g, i, &bc, &bm);
-        gfx_text(16, y, 1, g.handPlays[i] ? COL_TEXT : COL_DIM, HAND_INFO[i].name);
+        gfx_text(16, y, 1, g.handPlays[i] ? COL_TEXT : COL_DIM, HAND_INFO[i].name[LANG]);
         snprintf(b, sizeof(b), "%d", g.handLevel[i]);
         gfx_text(150, y, 1, COL_TEXT, b);
         snprintf(b, sizeof(b), "%d", bc);
@@ -1698,52 +2069,60 @@ static void info_hands(void)
         gfx_text_right(316, y, 1, COL_DIM, b);
     }
 
-    gfx_text(16, 182, 1, COL_BRASS, "MARCAS");
+    gfx_text(16, 182, 1, COL_BRASS, T("MARCAS", "MARKS"));
     for (i = 1; i < MARK_COUNT; i++) {
         y = 182 + i * 12;
         gfx_rect(16, y + 2, 8, 8, MARK_BAND[i]);
-        snprintf(b, sizeof(b), "%s: %s", MARK_NAME[i], MARK_DESC[i]);
+        snprintf(b, sizeof(b), "%s: %s", MARK_NAME[LANG][i], MARK_DESC[LANG][i]);
         gfx_text(28, y, 1, COL_TEXT, b);
     }
-    gfx_text(250, 182, 1, COL_BRASS, "MUESCAS");
+    gfx_text(250, 182, 1, COL_BRASS, T("MUESCAS", "NOTCHES"));
     for (i = 1; i < NOTCH_COUNT; i++) {
         y = 182 + i * 12;
         gfx_rect(250, y + 2, 8, 8, NOTCH_COL[i]);
-        snprintf(b, sizeof(b), "%s: %s", NOTCH_NAME[i], NOTCH_DESC[i]);
+        snprintf(b, sizeof(b), "%s: %s", NOTCH_NAME[LANG][i], NOTCH_DESC[LANG][i]);
         gfx_text(262, y, 1, COL_TEXT, b);
     }
-    gfx_text(340, 44, 1, COL_DIM, "Las cartas valen su");
-    gfx_text(340, 55, 1, COL_DIM, "número; J, Q y K");
-    gfx_text(340, 66, 1, COL_DIM, "valen 10 y el As 11.");
+    gfx_text(340, 44, 1, COL_DIM, T("Las cartas valen su", "Cards are worth"));
+    gfx_text(340, 55, 1, COL_DIM, T("número; J, Q y K", "their number; J, Q"));
+    gfx_text(340, 66, 1, COL_DIM, T("valen 10 y el As 11.", "and K are 10, Ace 11."));
 }
 
 static void info_items(void)
 {
     int i, y;
 
-    gfx_text(16, 30, 1, COL_BRASS, "AMULETOS");
-    if (g.relicCount == 0) gfx_text(16, 46, 1, COL_DIM, "Todavía no tienes ninguno.");
+    gfx_text(16, 30, 1, COL_BRASS, T("AMULETOS", "CHARMS"));
+    if (g.relicCount > 1) gfx_text_right(250, 30, 1, COL_DIM, T("el orden importa", "order matters"));
+    if (g.relicCount == 0) gfx_text(16, 46, 1, COL_DIM, T("Todavía no tienes ninguno.", "You don't have any yet."));
     for (i = 0; i < g.relicCount; i++) {
         int id = g.relics[i];
-        y = 42 + i * 42;
+        y = 42 + i * 40;
+        if (i == infoSel && g.relicCount > 1)
+            gfx_frame(10, y - 3, 242, 41, infoHeld ? 2 : 1, infoHeld ? COL_MONEY : COL_BRASS);
         gfx_rect(14, y, 36, 36, RGB(44, 30, 40));
         gfx_art(id, 16, y + 2, 2, COL_WHITE);
-        gfx_text(58, y + 2, 1, RARITY_COL[RELIC_INFO[id].rarity], RELIC_INFO[id].name);
-        gfx_text_wrap(58, y + 13, 190, 1, COL_DIM, RELIC_INFO[id].desc);
+        gfx_text(56, y + 2, 1, RARITY_COL[RELIC_INFO[id].rarity], RELIC_INFO[id].name[LANG]);
+        gfx_text_wrap(56, y + 13, 194, 1, COL_DIM, RELIC_INFO[id].desc[LANG]);
     }
+    if (g.relicCount > 1)
+        gfx_text(16, 246, 1, infoHeld ? COL_MONEY : COL_DIM,
+                 infoHeld ? T("Arriba/abajo: moverlo.  " G_CROSS " soltarlo.", "Up/down: move it.  " G_CROSS " drop it.")
+                          : T(G_CROSS " coge uno para cambiarlo de sitio.", G_CROSS " pick one up to move it."));
 
     gfx_rect(256, 30, 1, 224, COL_BRASS);
-    gfx_text(266, 30, 1, COL_TRICK, "TRUCOS");
-    if (g.trickCount == 0) gfx_text(266, 46, 1, COL_DIM, "No llevas ninguno.");
+    gfx_text(266, 30, 1, COL_TRICK, T("TRUCOS", "TRICKS"));
+    if (g.trickCount == 0) gfx_text(266, 46, 1, COL_DIM, T("No llevas ninguno.", "You carry none."));
     for (i = 0; i < g.trickCount; i++) {
         int id = g.tricks[i];
         y = 42 + i * 52;
         gfx_rect(264, y, 36, 36, RGB(52, 40, 80));
         gfx_art(TRICK_ART(id), 266, y + 2, 2, COL_WHITE);
-        gfx_text(308, y + 2, 1, COL_TEXT, TRICK_INFO[id].name);
-        gfx_text_wrap(308, y + 13, 158, 1, COL_DIM, TRICK_INFO[id].desc);
+        gfx_text(308, y + 2, 1, COL_TEXT, TRICK_INFO[id].name[LANG]);
+        gfx_text_wrap(308, y + 13, 158, 1, COL_DIM, TRICK_INFO[id].desc[LANG]);
     }
-    gfx_text_wrap(266, 206, 200, 1, COL_DIM, "Los trucos se usan en la ronda con R, tras elegir las cartas.");
+    gfx_text_wrap(266, 206, 200, 1, COL_DIM, T("Los trucos se usan en la ronda con R, tras elegir las cartas.",
+                                               "Use tricks during a round with R, after picking the cards."));
 }
 
 /* El mazo entero: una casilla por carta, con las que quedan por robar */
@@ -1790,28 +2169,29 @@ static void info_deck(void)
             }
         }
     }
-    if (inRound) snprintf(b, sizeof(b), "Quedan %d de %d cartas por robar.", g.drawCount, alive);
-    else snprintf(b, sizeof(b), "Tu mazo tiene %d cartas.", alive);
+    if (inRound) snprintf(b, sizeof(b), T("Quedan %d de %d cartas por robar.", "%d of %d cards left to draw."), g.drawCount, alive);
+    else snprintf(b, sizeof(b), T("Tu mazo tiene %d cartas.", "Your deck has %d cards."), alive);
     gfx_text(12, 226, 1, COL_TEXT, b);
-    gfx_text(12, 238, 1, COL_DIM, "Cuadraditos de color: cartas con marca o muesca.");
+    gfx_text(12, 238, 1, COL_DIM, T("Cuadraditos de color: cartas con marca o muesca.", "Colored squares: cards with a mark or notch."));
 }
 
 static void draw_info(void)
 {
-    static const char *const TITLE[INFO_PAGES] = { "MANOS", "AMULETOS Y TRUCOS", "MAZO" };
-    char b[48];
+    const char *title[INFO_PAGES];
     int i, x = 14;
 
+    title[0] = T("MANOS", "HANDS");
+    title[1] = T("AMULETOS Y TRUCOS", "CHARMS & TRICKS");
+    title[2] = T("MAZO", "DECK");
     gfx_rect(0, 0, SCR_W, SCR_H, COL_SHADE);
     draw_panel(4, 4, 472, 264);
     for (i = 0; i < INFO_PAGES; i++) {
-        int w = gfx_text_width(TITLE[i], 1);
+        int w = gfx_text_width(title[i], 1);
         if (i == infoPage) gfx_rect(x - 4, 8, w + 8, 14, COL_BOX);
-        gfx_text(x, 10, 1, i == infoPage ? COL_BRASS : COL_DIM, TITLE[i]);
+        gfx_text(x, 10, 1, i == infoPage ? COL_BRASS : COL_DIM, title[i]);
         x += w + 16;
     }
-    snprintf(b, sizeof(b), "L/R página  " G_CIRCLE " cerrar");
-    gfx_text_right(468, 10, 1, COL_DIM, b);
+    gfx_text_right(468, 10, 1, COL_DIM, T("L/R página  " G_CIRCLE " cerrar", "L/R page  " G_CIRCLE " close"));
     gfx_rect(8, 24, 464, 1, COL_BRASS);
 
     if (infoPage == 0) info_hands();
@@ -1821,20 +2201,39 @@ static void draw_info(void)
 
 static void draw_pause(void)
 {
-    const char *items[3];
+    char b[48];
     int i;
-    items[0] = "Continuar";
-    items[1] = synth_get_music() ? "Música: sí" : "Música: no";
-    items[2] = "Salir al título";
 
     gfx_rect(0, 0, SCR_W, SCR_H, COL_SHADE);
-    draw_panel(150, 76, 180, 122);
-    gfx_text_center(SCR_W / 2, 84, 2, COL_BRASS, "PAUSA");
-    gfx_rect(160, 116 + pauseSel * 22, 160, 18, COL_BOX);
-    gfx_rect(160, 116 + pauseSel * 22, 3, 18, COL_BRASS);
-    for (i = 0; i < 3; i++)
-        gfx_text_center(SCR_W / 2, 119 + i * 22, 1, pauseSel == i ? COL_TEXT : COL_DIM, items[i]);
-    gfx_text_center(SCR_W / 2, 184, 1, COL_DIM, "La partida se guarda sola.");
+    draw_panel(130, 56, 220, 160);
+    gfx_text_center(SCR_W / 2, 64, 2, COL_BRASS, T("PAUSA", "PAUSE"));
+    for (i = 0; i < PA_COUNT; i++) {
+        int y = 98 + i * 20, on = (i == pauseSel);
+        unsigned int col = on ? COL_TEXT : COL_DIM;
+        if (on) {
+            gfx_rect(140, y - 4, 200, 16, COL_BOX);
+            gfx_rect(140, y - 4, 3, 16, COL_BRASS);
+        }
+        switch (i) {
+        case PA_CONTINUE:
+            gfx_text(152, y, 1, col, T("Continuar", "Resume"));
+            break;
+        case PA_MUSIC:
+            gfx_text(152, y, 1, col, T("Música", "Music"));
+            draw_volume(240, y, optMusic, on);
+            break;
+        case PA_SFX:
+            gfx_text(152, y, 1, col, T("Efectos", "Effects"));
+            draw_volume(240, y, optSfx, on);
+            break;
+        default:
+            gfx_text(152, y, 1, col, T("Salir al título", "Quit to title"));
+            break;
+        }
+    }
+    snprintf(b, sizeof(b), T("Semilla: %08X", "Seed: %08X"), g.seed);
+    gfx_text_center(SCR_W / 2, 184, 1, COL_DIM, b);
+    gfx_text_center(SCR_W / 2, 198, 1, COL_DIM, T("La partida se guarda sola.", "The game saves by itself."));
 }
 
 static void draw_play(void)
@@ -1902,7 +2301,7 @@ static void draw_play(void)
         gfx_rect(AREA_X + 1, by, AREA_W - 2, 1, won ? COL_GOOD : COL_MULT);
         gfx_rect(AREA_X + 1, by + 35, AREA_W - 2, 1, won ? COL_GOOD : COL_MULT);
         gfx_text_center(AREA_X + AREA_W / 2, by + 8, 2, won ? COL_GOOD : COL_MULT,
-                        won ? "¡Ronda superada!" : "Sin jugadas...");
+                        won ? T("¡Ronda superada!", "Round cleared!") : T("Sin jugadas...", "Out of hands..."));
     }
 
     if (toastTimer > 0 && toastMsg) {
@@ -1916,14 +2315,14 @@ static void draw_play(void)
         const TrickInfo *info = &TRICK_INFO[g.tricks[trickSel < g.trickCount ? trickSel : 0]];
         gfx_rect(AREA_X + 20, 84, AREA_W - 40, 58, RGBA(20, 12, 34, 235));
         gfx_frame(AREA_X + 20, 84, AREA_W - 40, 58, 1, COL_TRICK);
-        gfx_text(AREA_X + 28, 88, 1, COL_TRICK, "TRUCO");
-        gfx_text(AREA_X + 70, 88, 1, COL_TEXT, info->name);
-        gfx_text_wrap(AREA_X + 28, 101, AREA_W - 56, 1, COL_TEXT, info->desc);
-        gfx_text(AREA_X + 28, 128, 1, COL_DIM, G_CROSS " Usar   " G_CIRCLE " Cancelar   < > Cambiar");
+        gfx_text(AREA_X + 28, 88, 1, COL_TRICK, T("TRUCO", "TRICK"));
+        gfx_text(AREA_X + 70, 88, 1, COL_TEXT, info->name[LANG]);
+        gfx_text_wrap(AREA_X + 28, 101, AREA_W - 56, 1, COL_TEXT, info->desc[LANG]);
+        gfx_text(AREA_X + 28, 128, 1, COL_DIM, T(G_CROSS " Usar   " G_CIRCLE " Cancelar   < > Cambiar", G_CROSS " Use   " G_CIRCLE " Cancel   < > Switch"));
     }
 
     gfx_text(AREA_X + 2, 258, 1, COL_DIM,
-             G_CROSS " Elegir " G_SQUARE " Jugar " G_TRIANGLE " Descartar L Orden R Trucos SEL Info");
+             T(G_CROSS " Elegir " G_SQUARE " Jugar " G_TRIANGLE " Descartar L Orden R Trucos SEL Info", G_CROSS " Pick  " G_SQUARE " Play  " G_TRIANGLE " Discard  L Sort  R Tricks  SEL Info"));
 
     gfx_shake(0, 0);
     if (showInfo) draw_info();
@@ -1939,10 +2338,10 @@ static void draw_play(void)
 static int win_lines(const char **label, int *amount)
 {
     int n = 0;
-    if (reward.base > 0)     { label[n] = "Premio de la ronda"; amount[n++] = reward.base; }
-    if (reward.hands > 0)    { label[n] = "Jugadas sin usar"; amount[n++] = reward.hands; }
-    if (reward.interest > 0) { label[n] = "Intereses ($1 por cada $5)"; amount[n++] = reward.interest; }
-    if (reward.relic > 0)    { label[n] = "Propina"; amount[n++] = reward.relic; }
+    if (reward.base > 0)     { label[n] = T("Premio de la ronda", "Round prize"); amount[n++] = reward.base; }
+    if (reward.hands > 0)    { label[n] = T("Jugadas sin usar", "Unused hands"); amount[n++] = reward.hands; }
+    if (reward.interest > 0) { label[n] = T("Intereses ($1 por cada $5)", "Interest ($1 per $5)"); amount[n++] = reward.interest; }
+    if (reward.relic > 0)    { label[n] = T("Amuletos", "Charms"); amount[n++] = reward.relic; }
     return n;
 }
 
@@ -1996,7 +2395,7 @@ static void draw_win(void)
     draw_bg();
     popin_begin();
     draw_panel(110, 36, 260, 200);
-    gfx_text_center(SCR_W / 2, 46, 2, COL_GOOD, "¡Ronda superada!");
+    gfx_text_center(SCR_W / 2, 46, 2, COL_GOOD, T("¡Ronda superada!", "Round cleared!"));
     for (i = 0; i < n; i++) {
         int age = stateAge - (WIN_FIRST + i * WIN_STEP);
         if (age >= 0) {
@@ -2014,9 +2413,9 @@ static void draw_win(void)
         gfx_text_center(SCR_W / 2, y + 10, 3, col_lerp(COL_MONEY, COL_WHITE, totalPop), b);
         gfx_xform_off();
     }
-    snprintf(b, sizeof(b), "Tienes $%d", (int)(dispMoney + 0.5f));
+    snprintf(b, sizeof(b), T("Tienes $%d", "You have $%d"), (int)(dispMoney + 0.5f));
     gfx_text_center(SCR_W / 2, 198, 1, COL_DIM, b);
-    if (stateAge > totalAt + 8) gfx_text_center(SCR_W / 2, 218, 1, COL_TEXT, G_CROSS " Continuar");
+    if (stateAge > totalAt + 8) gfx_text_center(SCR_W / 2, 218, 1, COL_TEXT, T(G_CROSS " Continuar", G_CROSS " Continue"));
     gfx_xform_off();
     draw_particles();
 }
@@ -2060,10 +2459,24 @@ static void update_shop(void)
     rowY = (float)(39 + shopSel * SHOP_ROW_H);
     r = rows[shopSel];
 
+    /* L y R cambian de sitio un amuleto propio: el orden importa al puntuar */
+    if (r.kind == ROW_SELL && (input_pressed(BTN_L) || input_pressed(BTN_R))) {
+        int to = game_move_relic(&g, r.idx, input_pressed(BTN_L) ? -1 : 1);
+        if (to != r.idx) {
+            shopSel += to - r.idx;
+            relicPop[to] = 0.6f;
+            selPulse = 1.0f;
+            snd_whoosh();
+        } else {
+            snd_error();
+        }
+        return;
+    }
+
     /* un truco propio se vende con Cuadrado y, si sirve fuera de la ronda, se usa con X */
     if (input_pressed(BTN_SQUARE) && r.kind == ROW_TRICK) {
         game_sell_trick(&g, r.idx);
-        toast("Truco vendido");
+        toast(T("Truco vendido", "Trick sold"));
         snd_money();
         moneyPulse = 1.0f;
         sparks(440.0f, rowY, 10, COL_GOOD, 2.6f);
@@ -2077,23 +2490,23 @@ static void update_shop(void)
         int kind = o->kind, id = o->id;
         switch (game_shop_buy(&g, r.idx)) {
         case BUY_OK:
-            if (kind == OF_RELIC) save_mark_found(id);
+            if (kind == OF_RELIC) save_relic_bought(id);
             if (kind == OF_TRICK) save_mark_trick_found(id);
-            toast("¡Comprado!");
+            toast(T("¡Comprado!", "Bought!"));
             snd_buy();
             moneyPulse = 1.0f;
             selPulse = 1.0f;
             sparks(440.0f, rowY, 16, COL_MONEY, 3.0f);
             break;
         case BUY_NO_MONEY:
-            shop_fail("No te llega el dinero");
+            shop_fail(T("No te llega el dinero", "Not enough money"));
             break;
         case BUY_NO_SPACE:
-            shop_fail(kind == OF_RELIC ? "No hay hueco: vende un amuleto"
-                      : kind == OF_TRICK ? "No te caben más trucos" : "El mazo está lleno");
+            shop_fail(kind == OF_RELIC ? T("No hay hueco: vende un amuleto", "No room: sell a charm")
+                      : kind == OF_TRICK ? T("No te caben más trucos", "No room for more tricks") : T("El mazo está lleno", "Your deck is full"));
             break;
         default:
-            shop_fail("Ya está vendido");
+            shop_fail(T("Ya está vendido", "Already sold"));
             break;
         }
         break;
@@ -2104,26 +2517,26 @@ static void update_shop(void)
             stateAge = 0;           /* las ofertas nuevas vuelven a entrar */
             moneyPulse = 1.0f;
         } else {
-            shop_fail("No te llega el dinero");
+            shop_fail(T("No te llega el dinero", "Not enough money"));
         }
         break;
     case ROW_SELL:
         game_shop_sell(&g, r.idx);
-        toast("Amuleto vendido");
+        toast(T("Amuleto vendido", "Charm sold"));
         snd_money();
         moneyPulse = 1.0f;
         sparks(440.0f, rowY, 10, COL_GOOD, 2.6f);
         break;
     case ROW_TRICK:
         if (!game_trick_shop_usable(g.tricks[r.idx])) {
-            shop_fail("Ese solo sirve durante una ronda");
+            shop_fail(T("Ese solo sirve durante una ronda", "That one only works in a round"));
         } else if (game_use_trick(&g, r.idx) == TRICK_OK) {
-            toast("¡Truco usado!");
+            toast(T("¡Truco usado!", "Trick used!"));
             snd_buy();
             moneyPulse = 1.0f;
             sparks(440.0f, rowY, 16, COL_TRICK, 3.0f);
         } else {
-            shop_fail("Ahora no tiene efecto");
+            shop_fail(T("Ahora no tiene efecto", "No effect right now"));
         }
         break;
     default:
@@ -2142,14 +2555,14 @@ static void draw_shop(void)
 
     draw_bg();
     gfx_shake(shakeX, shakeY);
-    gfx_text(14, 6, 2, COL_BRASS, "TIENDA");
+    gfx_text(14, 6, 2, COL_BRASS, T("TIENDA", "SHOP"));
     p = clampf(moneyPulse, 0.0f, 1.0f);
     snprintf(name, sizeof(name), "$%d", (int)(dispMoney + 0.5f));
     if (p > 0.02f) gfx_xform(440.0f, 16.0f, 0.0f, 1.0f + 0.25f * p);
     gfx_text_right(466, 6, 2, col_lerp(COL_MONEY, COL_WHITE, p), name);
     gfx_xform_off();
-    if (g.endless) snprintf(name, sizeof(name), "Siguiente: mesa %d (infinito), ronda %d", g.mesa + 1, g.round + 1);
-    else snprintf(name, sizeof(name), "Siguiente: mesa %d, ronda %d", g.mesa + 1, g.round + 1);
+    if (g.endless) snprintf(name, sizeof(name), T("Siguiente: mesa %d (infinito), ronda %d", "Next: table %d (endless), round %d"), g.mesa + 1, g.round + 1);
+    else snprintf(name, sizeof(name), T("Siguiente: mesa %d, ronda %d", "Next: table %d, round %d"), g.mesa + 1, g.round + 1);
     gfx_text_center(SCR_W / 2, 12, 1, COL_DIM, name);
 
     draw_panel(8, 30, 464, 186);
@@ -2168,39 +2581,39 @@ static void draw_shop(void)
         case ROW_OFFER: {
             const Offer *o = &g.shop[r.idx];
             if (o->kind == OF_RELIC) {
-                tag = "Amuleto"; tagCol = COL_BRASS;
+                tag = T("Amuleto", "Charm"); tagCol = COL_BRASS;
                 if (!o->sold) {
-                    snprintf(name, sizeof(name), "%s", RELIC_INFO[o->id].name);
-                    snprintf(d, sizeof(d), "[%s] %s", RARITY_NAME[RELIC_INFO[o->id].rarity], RELIC_INFO[o->id].desc);
+                    snprintf(name, sizeof(name), "%s", RELIC_INFO[o->id].name[LANG]);
+                    snprintf(d, sizeof(d), "[%s] %s", RARITY_NAME[LANG][RELIC_INFO[o->id].rarity], RELIC_INFO[o->id].desc[LANG]);
                     nameCol = RARITY_COL[RELIC_INFO[o->id].rarity];
                     art = o->id;
                 }
             } else if (o->kind == OF_TRICK) {
-                tag = "Truco"; tagCol = COL_TRICK;
-                snprintf(name, sizeof(name), "%s", TRICK_INFO[o->id].name);
-                snprintf(d, sizeof(d), "De un solo uso (botón R en la ronda). %s", TRICK_INFO[o->id].desc);
+                tag = T("Truco", "Trick"); tagCol = COL_TRICK;
+                snprintf(name, sizeof(name), "%s", TRICK_INFO[o->id].name[LANG]);
+                snprintf(d, sizeof(d), T("De un solo uso (botón R en la ronda). %s", "Single use (R button in a round). %s"), TRICK_INFO[o->id].desc[LANG]);
                 art = TRICK_ART(o->id);
             } else if (o->kind == OF_LESSON) {
-                tag = "Lección"; tagCol = COL_CHIPS;
-                snprintf(name, sizeof(name), "%s (nivel %d)", HAND_INFO[o->id].name, g.handLevel[o->id] + (o->sold ? 0 : 1));
-                snprintf(d, sizeof(d), "Sube de nivel %s: +%d fichas y +%d Multi de base.",
-                         HAND_INFO[o->id].name, HAND_INFO[o->id].upChips, HAND_INFO[o->id].upMult);
+                tag = T("Lección", "Lesson"); tagCol = COL_CHIPS;
+                snprintf(name, sizeof(name), T("%s (nivel %d)", "%s (level %d)"), HAND_INFO[o->id].name[LANG], g.handLevel[o->id] + (o->sold ? 0 : 1));
+                snprintf(d, sizeof(d), T("Sube de nivel %s: +%d fichas y +%d Multi de base.", "Levels up %s: +%d chips and +%d base Mult."),
+                         HAND_INFO[o->id].name[LANG], HAND_INFO[o->id].upChips, HAND_INFO[o->id].upMult);
             } else {
-                tag = "Carta"; tagCol = COL_GOOD;
+                tag = T("Carta", "Card"); tagCol = COL_GOOD;
                 if (o->card.notch) {
                     snprintf(name, sizeof(name), "%s%s %s + %s", RANK_STR[o->card.rank], SUIT_GLYPH[o->card.suit],
-                             MARK_NAME[o->card.mark], NOTCH_NAME[o->card.notch]);
-                    snprintf(d, sizeof(d), "Carta para tu mazo. Marca de %s: %s Muesca de %s: %s",
-                             MARK_NAME[o->card.mark], MARK_DESC[o->card.mark],
-                             NOTCH_NAME[o->card.notch], NOTCH_DESC[o->card.notch]);
+                             MARK_NAME[LANG][o->card.mark], NOTCH_NAME[LANG][o->card.notch]);
+                    snprintf(d, sizeof(d), T("Carta para tu mazo. Marca de %s: %s Muesca de %s: %s", "Card for your deck. %s mark: %s %s notch: %s"),
+                             MARK_NAME[LANG][o->card.mark], MARK_DESC[LANG][o->card.mark],
+                             NOTCH_NAME[LANG][o->card.notch], NOTCH_DESC[LANG][o->card.notch]);
                 } else {
-                    snprintf(name, sizeof(name), "%s%s %s", RANK_STR[o->card.rank], SUIT_GLYPH[o->card.suit], MARK_NAME[o->card.mark]);
-                    snprintf(d, sizeof(d), "Añade a tu mazo un %s de %s con marca de %s: %s",
-                             RANK_STR[o->card.rank], SUIT_NAME[o->card.suit], MARK_NAME[o->card.mark], MARK_DESC[o->card.mark]);
+                    snprintf(name, sizeof(name), "%s%s %s", RANK_STR[o->card.rank], SUIT_GLYPH[o->card.suit], MARK_NAME[LANG][o->card.mark]);
+                    snprintf(d, sizeof(d), T("Añade a tu mazo un %s de %s con marca de %s: %s", "Adds a %s of %s with a %s mark to your deck: %s"),
+                             RANK_STR[o->card.rank], SUIT_NAME[LANG][o->card.suit], MARK_NAME[LANG][o->card.mark], MARK_DESC[LANG][o->card.mark]);
                 }
             }
             if (o->sold) {
-                snprintf(name, sizeof(name), "- vendido -");
+                snprintf(name, sizeof(name), T("- vendido -", "- sold -"));
                 nameCol = COL_DIM;
                 d[0] = 0;
                 art = -1;
@@ -2211,38 +2624,39 @@ static void draw_shop(void)
             break;
         }
         case ROW_REROLL:
-            tag = "Tienda";
-            snprintf(name, sizeof(name), "Cambiar las ofertas");
+            tag = T("Tienda", "Shop");
+            snprintf(name, sizeof(name), T("Cambiar las ofertas", "Reroll the offers"));
             snprintf(price, sizeof(price), "$%d", g.rerollCost);
             if (g.money < g.rerollCost) priceCol = COL_MULT;
-            snprintf(d, sizeof(d), "Trae ofertas nuevas. Cada cambio cuesta $1 más.");
+            snprintf(d, sizeof(d), T("Trae ofertas nuevas. Cada cambio cuesta $1 más.", "Brings new offers. Each reroll costs $1 more."));
             break;
         case ROW_SELL: {
             int id = g.relics[r.idx];
-            tag = "Tuyo"; tagCol = COL_MULT;
-            snprintf(name, sizeof(name), "%s", RELIC_INFO[id].name);
+            tag = T("Tuyo", "Yours"); tagCol = COL_MULT;
+            snprintf(name, sizeof(name), "%s", RELIC_INFO[id].name[LANG]);
             snprintf(price, sizeof(price), "+$%d", game_relic_sell_value(id));
             priceCol = COL_GOOD;
-            snprintf(d, sizeof(d), "%s  " G_CROSS " venderlo.", RELIC_INFO[id].desc);
+            snprintf(d, sizeof(d), T("%s  " G_CROSS " venderlo.  L/R lo cambian de sitio.", "%s  " G_CROSS " sell it.  L/R move it."),
+                     RELIC_INFO[id].desc[LANG]);
             nameCol = RARITY_COL[RELIC_INFO[id].rarity];
             art = id;
             break;
         }
         case ROW_TRICK: {
             int id = g.tricks[r.idx];
-            tag = "Tuyo"; tagCol = COL_TRICK;
-            snprintf(name, sizeof(name), "%s", TRICK_INFO[id].name);
+            tag = T("Tuyo", "Yours"); tagCol = COL_TRICK;
+            snprintf(name, sizeof(name), "%s", TRICK_INFO[id].name[LANG]);
             snprintf(price, sizeof(price), "+$%d", game_trick_sell_value(id));
             priceCol = COL_GOOD;
-            snprintf(d, sizeof(d), "%s  " G_SQUARE " venderlo%s", TRICK_INFO[id].desc,
-                     game_trick_shop_usable(id) ? ".  " G_CROSS " usarlo ahora." : ".");
+            snprintf(d, sizeof(d), T("%s  " G_SQUARE " venderlo%s", "%s  " G_SQUARE " sell it%s"), TRICK_INFO[id].desc[LANG],
+                     game_trick_shop_usable(id) ? T(".  " G_CROSS " usarlo ahora.", ".  " G_CROSS " use it now.") : ".");
             art = TRICK_ART(id);
             break;
         }
         default:
-            snprintf(name, sizeof(name), "Ir a la siguiente ronda >");
+            snprintf(name, sizeof(name), T("Ir a la siguiente ronda >", "Go to the next round >"));
             nameCol = COL_GOOD;
-            snprintf(d, sizeof(d), "Sal de la tienda. Cada $5 ahorrados dan $1 de interés (máximo $5).");
+            snprintf(d, sizeof(d), T("Sal de la tienda. Cada $5 ahorrados dan $1 de interés (máximo $5).", "Leave the shop. Every $5 saved earns $1 interest (up to $5)."));
             break;
         }
 
@@ -2266,9 +2680,9 @@ static void draw_shop(void)
         gfx_text_wrap(16, 222, 448, 1, COL_TEXT, desc);
     }
     snprintf(tmp, sizeof(tmp), "%d/%d", g.relicCount, MAX_RELICS);
-    gfx_text(8, 259, 1, COL_DIM, G_CROSS " Comprar   SELECT Info y mazo   Amuletos:");
-    gfx_text(8 + gfx_text_width(G_CROSS " Comprar   SELECT Info y mazo   Amuletos: ", 1), 259, 1, COL_TEXT, tmp);
-    snprintf(tmp, sizeof(tmp), "Trucos: %d/%d", g.trickCount, game_pockets(&g));
+    gfx_text(8, 259, 1, COL_DIM, T(G_CROSS " Comprar   SELECT Info y mazo   Amuletos:", G_CROSS " Buy   SELECT Info & deck   Charms:"));
+    gfx_text(8 + gfx_text_width(T(G_CROSS " Comprar   SELECT Info y mazo   Amuletos: ", G_CROSS " Buy   SELECT Info & deck   Charms: "), 1), 259, 1, COL_TEXT, tmp);
+    snprintf(tmp, sizeof(tmp), T("Trucos: %d/%d", "Tricks: %d/%d"), g.trickCount, game_pockets(&g));
     gfx_text_right(472, 259, 1, COL_TRICK, tmp);
 
     draw_particles();
@@ -2295,7 +2709,7 @@ static void update_end(void)
                 snd_start();
                 enter_shop();              /* la partida ya quedo guardada en la tienda */
             } else {
-                save_clear_run();
+                save_run_ended(&g);        /* suma sus estadisticas y borra la partida */
                 set_state(ST_TITLE);
                 snd_select(0);
             }
@@ -2305,61 +2719,80 @@ static void update_end(void)
     if (stateAge > 30 && (input_pressed(BTN_CROSS) || input_pressed(BTN_START))) set_state(ST_TITLE);
 }
 
+/* La mano mas jugada en esta partida, o -1 */
+static int most_played(const int *plays)
+{
+    int i, best = -1, max = 0;
+    for (i = 0; i < HT_COUNT; i++)
+        if (plays[i] > max) { max = plays[i]; best = i; }
+    return best;
+}
+
 static void draw_end(int won)
 {
-    char b[80], n[40];
-    int i;
+    char b[96], n[40], t[40];
+    int i, fav = most_played(g.handPlays);
 
     draw_bg();
     draw_particles();        /* el confeti cae por detras del panel para no tapar el texto */
     gfx_shake(shakeX, shakeY);
     popin_begin();
-    draw_panel(90, 30, 300, 212);
+    draw_panel(90, 24, 300, 226);
     if (won) {
-        gfx_text_center(SCR_W / 2, 40 + (int)(sinf((float)frame * 0.1f) * 3.0f), 3, COL_MONEY, "¡VICTORIA!");
-        snprintf(b, sizeof(b), "Has limpiado las %d mesas en %s.", NUM_MESAS, DIFF_INFO[g.difficulty].name);
-        gfx_text_center(SCR_W / 2, 80, 1, COL_TEXT, b);
+        gfx_text_center(SCR_W / 2, 32 + (int)(sinf((float)frame * 0.1f) * 3.0f), 3, COL_MONEY, T("¡VICTORIA!", "VICTORY!"));
+        snprintf(b, sizeof(b), T("Has limpiado las %d mesas en %s.", "You cleared all %d tables on %s."),
+                 NUM_MESAS, DIFF_INFO[g.difficulty].name[LANG]);
+        gfx_text_center(SCR_W / 2, 68, 1, COL_TEXT, b);
     } else {
-        gfx_text_center(SCR_W / 2, 40, 3, COL_MULT, "FIN");
-        if (g.endless) snprintf(b, sizeof(b), "Modo infinito: caíste en la mesa %d.", g.mesa + 1);
-        else snprintf(b, sizeof(b), "Caíste en la mesa %d, ronda %d.", g.mesa + 1, g.round + 1);
-        gfx_text_center(SCR_W / 2, 80, 1, COL_TEXT, b);
+        gfx_text_center(SCR_W / 2, 32, 3, COL_MULT, T("FIN", "GAME OVER"));
+        if (g.endless) snprintf(b, sizeof(b), T("Modo infinito: caíste en la mesa %d.", "Endless mode: you fell at table %d."), g.mesa + 1);
+        else snprintf(b, sizeof(b), T("Caíste en la mesa %d, ronda %d.", "You fell at table %d, round %d."), g.mesa + 1, g.round + 1);
+        gfx_text_center(SCR_W / 2, 64, 1, COL_TEXT, b);
         fmt_ll(n, g.score);
-        snprintf(b, sizeof(b), "Puntos: %s", n);
-        gfx_text_center(SCR_W / 2, 96, 1, COL_DIM, b);
-        fmt_ll(n, g.target);
-        snprintf(b, sizeof(b), "Objetivo: %s", n);
-        gfx_text_center(SCR_W / 2, 108, 1, COL_DIM, b);
+        fmt_ll(t, g.target);
+        snprintf(b, sizeof(b), T("Puntos: %s de %s", "Score: %s of %s"), n, t);
+        gfx_text_center(SCR_W / 2, 76, 1, COL_DIM, b);
     }
+
+    /* resumen de la partida */
     fmt_ll(n, g.bestHand);
-    snprintf(b, sizeof(b), "Mejor jugada: %s", n);
-    gfx_text_center(SCR_W / 2, 128, 1, COL_MONEY, b);
-    snprintf(b, sizeof(b), "Amuletos: %d   Dinero: $%d", g.relicCount, g.money);
-    gfx_text_center(SCR_W / 2, 142, 1, COL_DIM, b);
+    snprintf(b, sizeof(b), T("Mejor jugada: %s", "Best hand: %s"), n);
+    gfx_text_center(SCR_W / 2, 94, 1, COL_MONEY, b);
+    snprintf(b, sizeof(b), T("Jugadas: %d   Descartes: %d   Trucos: %d", "Hands: %d   Discards: %d   Tricks: %d"),
+             g.statHands, g.statDiscards, g.statTricks);
+    gfx_text_center(SCR_W / 2, 108, 1, COL_TEXT, b);
+    snprintf(b, sizeof(b), T("Dinero ganado: $%d   Amuletos: %d", "Money earned: $%d   Charms: %d"), g.statEarned, g.relicCount);
+    gfx_text_center(SCR_W / 2, 120, 1, COL_TEXT, b);
+    snprintf(b, sizeof(b), T("Mano más jugada: %s", "Most played hand: %s"), fav >= 0 ? HAND_INFO[fav].name[LANG] : "-");
+    gfx_text_center(SCR_W / 2, 132, 1, COL_TEXT, b);
+    snprintf(b, sizeof(b), T("Semilla: %08X", "Seed: %08X"), g.seed);
+    gfx_text_center(SCR_W / 2, 146, 1, COL_DIM, b);
+
     if (newUnlock >= 0) {
-        snprintf(b, sizeof(b), "¡Nueva baraja: %s!", DECK_INFO[newUnlock].name);
-        gfx_text_center(SCR_W / 2, 160, 1, COL_GOOD, b);
+        snprintf(b, sizeof(b), T("¡Nueva baraja: %s!", "New deck: %s!"), DECK_INFO[newUnlock].name[LANG]);
+        gfx_text_center(SCR_W / 2, 164, 1, COL_GOOD, b);
     }
     if (newDiff > 0) {
-        snprintf(b, sizeof(b), "¡Nueva dificultad: %s!", DIFF_INFO[newDiff].name);
-        gfx_text_center(SCR_W / 2, 172, 1, COL_GOOD, b);
+        snprintf(b, sizeof(b), T("¡Nueva dificultad: %s!", "New difficulty: %s!"), DIFF_INFO[newDiff].name[LANG]);
+        gfx_text_center(SCR_W / 2, 176, 1, COL_GOOD, b);
     }
 
     if (won) {
-        static const char *const items[2] = { "Seguir en modo infinito", "Terminar aquí" };
         if (stateAge > 40) {
             for (i = 0; i < 2; i++) {
-                int y = 194 + i * 18;
+                int y = 202 + i * 18;
+                const char *label = i == 0 ? T("Seguir en modo infinito", "Keep going in endless mode")
+                                           : T("Terminar aquí", "Stop here");
                 if (i == endSel) {
                     int grow = (int)(selPulse * 3.0f);
-                    gfx_rect(140 - grow, y - 3, 200 + grow * 2, 14, COL_BOX);
-                    gfx_rect(140 - grow, y - 3, 3, 14, COL_BRASS);
+                    gfx_rect(130 - grow, y - 3, 220 + grow * 2, 14, COL_BOX);
+                    gfx_rect(130 - grow, y - 3, 3, 14, COL_BRASS);
                 }
-                gfx_text_center(SCR_W / 2, y, 1, i == endSel ? COL_TEXT : COL_DIM, items[i]);
+                gfx_text_center(SCR_W / 2, y, 1, i == endSel ? COL_TEXT : COL_DIM, label);
             }
         }
     } else if (stateAge > 30) {
-        gfx_text_center(SCR_W / 2, 214, 1, COL_TEXT, G_CROSS " Volver al título");
+        gfx_text_center(SCR_W / 2, 222, 1, COL_TEXT, T(G_CROSS " Volver al título", G_CROSS " Back to title"));
     }
     gfx_xform_off();
     gfx_shake(0, 0);
@@ -2386,7 +2819,9 @@ static void art_cell(int cell, int icon, unsigned int vcolor)
 }
 
 /* Las ilustraciones se pasan a una textura al arrancar. Varios trucos comparten dibujo
-   y solo cambian el color variable. */
+   y solo cambian el color variable; los retratos de los rivales se montan por capas. */
+#define NO_HAT 255
+
 static void art_build(void)
 {
     static const struct { unsigned char icon; unsigned int vcolor; } TRICK[T_COUNT] = {
@@ -2399,11 +2834,60 @@ static void art_build(void)
         { ART_T_CIZALLA, 0 }, { ART_T_GEMELO, 0 }, { ART_T_SOPLO, 0 }, { ART_T_RELOJ, 0 },
         { ART_T_SOBRE, 0 }, { ART_T_CHULETA, 0 },
     };
+    /* rival: sombrero, ojos, boca, color de la ropa y del sombrero */
+    static const struct { unsigned char hat, eyes, mouth; unsigned int shirt, hatCol; } BOSS[B_COUNT] = {
+        { NO_HAT, ART_B_OJOS, ART_B_SERIO, 0, 0 },                                                 /* sin rival */
+        { ART_B_BOINA, ART_B_OJOS, ART_B_SERIO, RGB(120, 90, 60), RGB(40, 90, 60) },               /* Manco */
+        { NO_HAT, ART_B_OJOS, ART_B_BIGOTE, RGB(200, 60, 50), 0 },                                 /* Impaciente */
+        { ART_B_COPA, ART_B_MONOCULO, ART_B_SERIO, RGB(110, 110, 120), 0 },                        /* Tacano */
+        { ART_B_PANUELO, ART_B_CERRADOS, ART_B_SERIO, RGB(110, 70, 150), RGB(140, 80, 190) },      /* Supersticioso */
+        { ART_B_BOINA, ART_B_OJOS, ART_B_BIGOTE, RGB(180, 40, 50), RGB(200, 40, 50) },             /* Republicano */
+        { ART_B_VISERA, ART_B_GAFAS, ART_B_SONRISA, RGB(30, 100, 70), 0 },                         /* Banca */
+        { ART_B_COPA, ART_B_MONOCULO, ART_B_BIGOTE, RGB(40, 50, 110), 0 },                         /* Estirado */
+        { ART_B_VISERA, ART_B_GAFAS, ART_B_SERIO, RGB(80, 80, 90), 0 },                            /* Recaudador */
+        { ART_B_PANUELO, ART_B_PARCHE, ART_B_SONRISA, RGB(50, 40, 50), RGB(200, 50, 60) },         /* Tuerto */
+        { ART_B_PELO, ART_B_GAFAS, ART_B_SERIO, RGB(220, 220, 210), 0 },                           /* Maniatico */
+        { ART_B_BOINA, ART_B_CERRADOS, ART_B_SONRISA, RGB(190, 170, 130), RGB(70, 100, 180) },     /* Olvidadizo */
+        { ART_B_PELO, ART_B_CERRADOS, ART_B_SERIO, RGB(120, 120, 130), 0 },                        /* Aburrido */
+        { ART_B_VISERA, ART_B_OJOS, ART_B_PURO, RGB(230, 140, 40), 0 },                            /* Peajero */
+        { ART_B_BOINA, ART_B_ANTIFAZ, ART_B_SONRISA, RGB(40, 40, 48), RGB(70, 70, 84) },           /* Ladron */
+        { ART_B_COPA, ART_B_OJOS, ART_B_SERIO, RGB(235, 235, 240), 0 },                            /* Purista */
+        { ART_B_PANUELO, ART_B_CERRADOS, ART_B_SONRISA, RGB(240, 200, 70), RGB(90, 140, 220) },    /* Madrugon */
+        { ART_B_PELO, ART_B_BICOLOR, ART_B_SONRISA, RGB(40, 150, 150), 0 },                        /* Daltonico */
+    };
     int i;
     gfx_art_clear();
     for (i = 0; i < R_COUNT; i++) art_cell(i, i, 0);
     for (i = 0; i < T_COUNT; i++) art_cell(TRICK_ART(i), TRICK[i].icon, TRICK[i].vcolor);
+    for (i = 1; i < B_COUNT; i++) {
+        int cell = BOSS_ART(i);
+        art_cell(cell, ART_B_CARA, BOSS[i].shirt);
+        if (BOSS[i].hat != NO_HAT) art_cell(cell, BOSS[i].hat, BOSS[i].hatCol);
+        art_cell(cell, BOSS[i].eyes, 0);
+        art_cell(cell, BOSS[i].mouth, 0);
+    }
     gfx_art_commit();
+}
+
+/* Cada momento del juego tiene su musica */
+static void music_update(void)
+{
+    int t;
+    switch (state) {
+    case ST_INTRO:
+    case ST_PLAY:
+        t = g.bossRule != B_NONE ? TRACK_BOSS : TRACK_PLAY;
+        break;
+    case ST_WIN:
+    case ST_SHOP:
+    case ST_VICTORY:
+        t = TRACK_SHOP;
+        break;
+    default:
+        t = TRACK_TITLE;
+        break;
+    }
+    synth_set_track(t);
 }
 
 void ui_init(void)
@@ -2415,7 +2899,10 @@ void ui_init(void)
     SEMI[0] = 1.0f;
     for (i = 1; i < 49; i++) SEMI[i] = SEMI[i - 1] * 1.0594631f;
     save_init();
-    synth_set_music(!save_profile()->musicOff);
+    options_load();
+#ifdef AUTOTEST
+    game_lang = (AUTOTEST == 4) ? LANG_EN : LANG_ES;    /* la variante 4 comprueba el juego en ingles */
+#endif
     newUnlock = -1;
     state = ST_TITLE;
     phase = PH_SELECT;
@@ -2431,30 +2918,33 @@ void ui_update(void)
     frame++;
     stateAge++;
     fx_update();
+    music_update();
     switch (state) {
-    case ST_TITLE:    update_title(); break;
-    case ST_DECK:     update_deck(); break;
+    case ST_TITLE:      update_title(); break;
+    case ST_OPTIONS:    update_options(); break;
+    case ST_DECK:       update_deck(); break;
     case ST_COLLECTION: update_collection(); break;
-    case ST_INTRO:    update_intro(); break;
-    case ST_PLAY:     update_play();  break;
-    case ST_WIN:      update_win();   break;
-    case ST_SHOP:     update_shop();  break;
-    default:          update_end();   break;
+    case ST_INTRO:      update_intro(); break;
+    case ST_PLAY:       update_play();  break;
+    case ST_WIN:        update_win();   break;
+    case ST_SHOP:       update_shop();  break;
+    default:            update_end();   break;
     }
 }
 
 void ui_draw(void)
 {
     switch (state) {
-    case ST_TITLE:    draw_title(); break;
-    case ST_DECK:     draw_deck(); break;
+    case ST_TITLE:      draw_title(); break;
+    case ST_OPTIONS:    draw_options(); break;
+    case ST_DECK:       draw_deck(); break;
     case ST_COLLECTION: draw_collection(); break;
-    case ST_INTRO:    draw_intro(); break;
-    case ST_PLAY:     draw_play();  break;
-    case ST_WIN:      draw_win();   break;
-    case ST_SHOP:     draw_shop();  break;
-    case ST_GAMEOVER: draw_end(0);  break;
-    default:          draw_end(1);  break;
+    case ST_INTRO:      draw_intro(); break;
+    case ST_PLAY:       draw_play();  break;
+    case ST_WIN:        draw_win();   break;
+    case ST_SHOP:       draw_shop();  break;
+    case ST_GAMEOVER:   draw_end(0);  break;
+    default:            draw_end(1);  break;
     }
 }
 

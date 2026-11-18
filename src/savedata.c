@@ -33,7 +33,7 @@ static int official = -1;      /* -1 sin probar, 1 funciona, 0 no funciona (se u
 
 /* --------------------------------------------------------- archivo suelto */
 
-static int file_read(void *buf, int size)
+static int __attribute__((unused)) file_read(void *buf, int size)
 {
     SceUID fd = sceIoOpen(FILE_PATH, PSP_O_RDONLY, 0777);
     int n;
@@ -79,7 +79,7 @@ static void fill_param(int mode, int size)
 
     if (mode == PSP_UTILITY_SAVEDATA_AUTOSAVE) {
         strcpy(param.sfoParam.title, "FAROL");
-        strcpy(param.sfoParam.savedataTitle, "Partida y récords");
+        strcpy(param.sfoParam.savedataTitle, LANG ? "Run and records" : "Partida y récords");
         strncpy(param.sfoParam.detail, detail, sizeof(param.sfoParam.detail) - 1);
         param.sfoParam.parentalLevel = 1;
         if (iconSize > 0) {

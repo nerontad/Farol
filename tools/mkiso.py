@@ -2,10 +2,11 @@
 """Empaqueta el ejecutable de FAROL en una imagen ISO de PSP.
 
 Uso:  python tools/mkiso.py farol.prx FAROL.iso
+      python tools/mkiso.py --images build      (solo escribe ICON0.PNG y PIC1.PNG, para el EBOOT)
 
-Solo usa la biblioteca estandar: genera PARAM.SFO, ICON0.PNG, UMD_DATA.BIN y
-escribe un ISO9660 con la estructura PSP_GAME/SYSDIR/EBOOT.BIN que esperan
-los custom firmware y PPSSPP.
+Solo usa la biblioteca estandar: genera PARAM.SFO, ICON0.PNG (el icono), PIC1.PNG (el fondo
+que se ve en el menu de la consola), UMD_DATA.BIN y escribe un ISO9660 con la estructura
+PSP_GAME/SYSDIR/EBOOT.BIN que esperan los custom firmware y PPSSPP.
 """
 import os
 import re
@@ -100,6 +101,73 @@ def make_icon(font):
     text(14, 16, 4, (0, 0, 0), "FAROL")
     text(13, 14, 4, brass, "FAROL")
     text(22, 56, 1, (240, 232, 214), "ROGUELIKE DE POKER")
+    return make_png(w, h, px)
+
+
+# ------------------------------------------------------------------- PIC1.PNG
+
+# los mismos palos de 7x7 que dibuja el juego (gfx.c)
+SUITS = [
+    ["...#...", "..###..", ".#####.", "#######", "##.#.##", "...#...", "..###.."],
+    [".##.##.", "#######", "#######", "#######", ".#####.", "..###..", "...#..."],
+    ["..###..", "..###..", "##.#.##", "#######", "##.#.##", "...#...", "..###.."],
+    ["...#...", "..###..", ".#####.", "#######", ".#####.", "..###..", "...#..."],
+]
+SUIT_INK = [(30, 30, 40), (204, 36, 48), (22, 112, 70), (222, 118, 18)]
+
+
+def make_pic1(font):
+    """El fondo de 480x272 que la consola muestra detras del menu al elegir el juego."""
+    w, h = 480, 272
+    top, bot = (60, 24, 42), (14, 7, 12)
+    px = [[tuple(top[i] + (bot[i] - top[i]) * y // (h - 1) for i in range(3)) for _ in range(w)] for y in range(h)]
+
+    def rect(x0, y0, rw, rh, col, a=1.0):
+        for y in range(max(0, y0), min(h, y0 + rh)):
+            row = px[y]
+            for x in range(max(0, x0), min(w, x0 + rw)):
+                if a >= 1.0:
+                    row[x] = col
+                else:
+                    o = row[x]
+                    row[x] = tuple(int(o[i] + (col[i] - o[i]) * a) for i in range(3))
+
+    def text(x, y, scale, col, s, a=1.0):
+        for ch in s:
+            cols = font[ord(ch) - 32]
+            for c in range(5):
+                for r in range(7):
+                    if (cols[c] >> r) & 1:
+                        rect(x + c * scale, y + r * scale, scale, scale, col, a)
+            x += 6 * scale
+
+    def suit(x, y, scale, idx, col, a=1.0):
+        for r, line in enumerate(SUITS[idx]):
+            for c, ch in enumerate(line):
+                if ch == "#":
+                    rect(x + c * scale, y + r * scale, scale, scale, col, a)
+
+    # palos flotando muy tenues, como en el fondo del juego
+    for k in range(16):
+        suit((k * 97) % 470 - 12, (k * 61) % 250 - 8, 4 + k % 4, k % 4, (255, 214, 170), 0.06)
+
+    # un abanico de cartas a la derecha (la izquierda la ocupa el menu de la consola)
+    cards = [("A", 0), ("K", 1), ("Q", 2), ("J", 3), ("10", 0)]
+    cw, chh = 62, 88
+    for i, (rank, s) in enumerate(cards):
+        x, y = 200 + i * 52, 126 + (i - 2) * (i - 2) * 6
+        ink = SUIT_INK[s]
+        rect(x + 4, y + 5, cw, chh, (0, 0, 0), 0.4)
+        rect(x + 1, y, cw - 2, chh, (40, 30, 30))
+        rect(x, y + 1, cw, chh - 2, (40, 30, 30))
+        rect(x + 2, y + 2, cw - 4, chh - 4, (244, 238, 224))
+        text(x + 6, y + 6, 3, ink, rank)
+        suit(x + cw // 2 - 14, y + 42, 4, s, ink)
+
+    brass = (204, 160, 78)
+    text(230, 34, 8, (0, 0, 0), "FAROL", 0.5)
+    text(226, 30, 8, brass, "FAROL")
+    text(234, 92, 2, (240, 232, 214), "ROGUELIKE DE POKER")
     return make_png(w, h, px)
 
 
@@ -284,11 +352,20 @@ def list_iso(image):
 # ----------------------------------------------------------------------- main
 
 def main():
+    here = os.path.dirname(os.path.abspath(__file__))
+    if len(sys.argv) == 3 and sys.argv[1] == "--images":
+        # para el EBOOT.PBP: el Makefile los recoge si existen
+        font = load_font(os.path.join(here, "..", "src", "font5x7.h"))
+        os.makedirs(sys.argv[2], exist_ok=True)
+        for name, data in (("ICON0.PNG", make_icon(font)), ("PIC1.PNG", make_pic1(font))):
+            with open(os.path.join(sys.argv[2], name), "wb") as f:
+                f.write(data)
+            print("%s/%s (%d bytes)" % (sys.argv[2], name, len(data)))
+        return 0
     if len(sys.argv) != 3:
         print(__doc__)
         return 2
     prx_path, iso_path = sys.argv[1], sys.argv[2]
-    here = os.path.dirname(os.path.abspath(__file__))
 
     with open(prx_path, "rb") as f:
         prx = f.read()
@@ -308,7 +385,9 @@ def main():
         "REGION": 0x8000,
         "TITLE": (TITLE, 128),
     })
-    icon = make_icon(load_font(os.path.join(here, "..", "src", "font5x7.h")))
+    font = load_font(os.path.join(here, "..", "src", "font5x7.h"))
+    icon = make_icon(font)
+    pic1 = make_pic1(font)
     umd_data = ("%s-%s|0000000000000001|0001|G" % (DISC_ID[:4], DISC_ID[4:])).encode("ascii")
 
     tree = {
@@ -316,6 +395,7 @@ def main():
         "PSP_GAME": {
             "PARAM.SFO": sfo,
             "ICON0.PNG": icon,
+            "PIC1.PNG": pic1,
             "SYSDIR": {
                 "EBOOT.BIN": prx,
                 "BOOT.BIN": prx,
@@ -327,7 +407,7 @@ def main():
 
     listing = list_iso(image)
     for path, data in (("UMD_DATA.BIN", umd_data), ("PSP_GAME/PARAM.SFO", sfo),
-                       ("PSP_GAME/ICON0.PNG", icon), ("PSP_GAME/SYSDIR/EBOOT.BIN", prx),
+                       ("PSP_GAME/ICON0.PNG", icon), ("PSP_GAME/PIC1.PNG", pic1), ("PSP_GAME/SYSDIR/EBOOT.BIN", prx),
                        ("PSP_GAME/SYSDIR/BOOT.BIN", prx)):
         lba, size = listing[path]
         assert image[lba * SECTOR:lba * SECTOR + size] == data, "contenido incorrecto: " + path

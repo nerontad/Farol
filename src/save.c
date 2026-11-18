@@ -4,7 +4,7 @@
 #include "save.h"
 
 #define SAVE_MAGIC   0x4C524146u   /* "FARL" */
-#define SAVE_VERSION 4u
+#define SAVE_VERSION 5u
 
 typedef struct {
     unsigned int magic, version, size, checksum;
@@ -35,6 +35,9 @@ static void reset(void)
     data.magic = SAVE_MAGIC;
     data.version = SAVE_VERSION;
     data.size = (unsigned int)sizeof(SaveData);
+    data.profile.musicVol = 7;
+    data.profile.sfxVol = 10;
+    data.profile.lang = LANG_AUTO;
 }
 
 static int bit_get(const unsigned char *bits, int i) { return (bits[i / 8] >> (i % 8)) & 1; }
@@ -45,10 +48,12 @@ static void flush(void)
     char detail[200];
     int n;
 
-    n = snprintf(detail, sizeof(detail), "Mesas superadas: %d. Amuletos: %d/%d.",
+    /* el texto que acompana al guardado en el menu de la consola, en el idioma del juego */
+    n = snprintf(detail, sizeof(detail), LANG ? "Tables cleared: %d. Charms: %d/%d." : "Mesas superadas: %d. Amuletos: %d/%d.",
                  data.profile.bestMesa, save_found_count(), R_COUNT);
     if (data.hasRun && n > 0 && n < (int)sizeof(detail))
-        snprintf(detail + n, sizeof(detail) - (size_t)n, " Partida en curso: mesa %d, ronda %d.",
+        snprintf(detail + n, sizeof(detail) - (size_t)n,
+                 LANG ? " Run in progress: table %d, round %d." : " Partida en curso: mesa %d, ronda %d.",
                  data.game.mesa + 1, data.game.round + 1);
     plat_storage_label(detail);
 
@@ -81,6 +86,9 @@ void save_init(void)
             tmp.hasRun = 0;
     }
     if (tmp.profile.maxDifficulty < 0 || tmp.profile.maxDifficulty >= DIFF_COUNT) tmp.profile.maxDifficulty = 0;
+    if (tmp.profile.musicVol > 10) tmp.profile.musicVol = 10;
+    if (tmp.profile.sfxVol > 10) tmp.profile.sfxVol = 10;
+    if (tmp.profile.lang > LANG_SET_EN) tmp.profile.lang = LANG_AUTO;
     data = tmp;
 }
 
@@ -89,9 +97,11 @@ const Profile *save_profile(void)
     return &data.profile;
 }
 
-void save_set_music(int on)
+void save_set_options(int musicVol, int sfxVol, int lang)
 {
-    data.profile.musicOff = (unsigned char)(on ? 0 : 1);
+    data.profile.musicVol = (unsigned char)(musicVol < 0 ? 0 : (musicVol > 10 ? 10 : musicVol));
+    data.profile.sfxVol = (unsigned char)(sfxVol < 0 ? 0 : (sfxVol > 10 ? 10 : sfxVol));
+    data.profile.lang = (unsigned char)lang;
     flush();
 }
 
@@ -107,9 +117,11 @@ int save_found_count(void)
     return n;
 }
 
-void save_mark_found(int relic)
+void save_relic_bought(int relic)
 {
-    if (relic >= 0 && relic < R_COUNT) bit_set(data.profile.found, relic);
+    if (relic < 0 || relic >= R_COUNT) return;
+    bit_set(data.profile.found, relic);
+    if (data.profile.relicBought[relic] < 65535) data.profile.relicBought[relic]++;
 }
 
 int save_is_trick_found(int trick)
@@ -195,8 +207,16 @@ void save_run_won(const Game *g)
 
 void save_run_ended(const Game *g)
 {
+    Profile *p = &data.profile;
+    int i;
     /* una partida que ya gano y siguio en modo infinito ya se conto al ganar */
-    if (!g->endless) data.profile.runs++;
+    if (!g->endless) p->runs++;
     update_bests(g, g->mesa);
+    p->totalHands += (unsigned int)g->statHands;
+    p->totalDiscards += (unsigned int)g->statDiscards;
+    p->totalRounds += (unsigned int)g->statRounds;
+    p->totalTricks += (unsigned int)g->statTricks;
+    p->totalEarned += (unsigned int)g->statEarned;
+    for (i = 0; i < HT_COUNT; i++) p->handPlays[i] += (unsigned int)g->handPlays[i];
     save_clear_run();
 }

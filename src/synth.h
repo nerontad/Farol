@@ -6,6 +6,9 @@
 
 enum { W_SQUARE, W_TRI, W_SINE, W_NOISE };
 
+/* Piezas de musica: cada momento del juego tiene la suya */
+enum { TRACK_TITLE, TRACK_PLAY, TRACK_BOSS, TRACK_SHOP, TRACK_COUNT };
+
 void synth_init(void);
 
 /* Lanza una nota. Se puede llamar desde el hilo del juego.
@@ -17,6 +20,8 @@ void synth_render(short *out, int frames);
 
 void synth_set_music(int on);
 int  synth_get_music(void);
+void synth_set_volume(int music, int sfx);   /* de 0 a 10 cada uno; se nota al instante */
+void synth_set_track(int track);             /* cambia de pieza en la siguiente semicorchea */
 void synth_set_intensity(float v);   /* 0..1: la musica se anima cuando sube */
 
 /* Para las pruebas: pico absoluto y numero de muestras no nulas generadas */

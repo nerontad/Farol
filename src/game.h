@@ -32,6 +32,7 @@ enum {
     R_DOBLETE, R_CASA, R_CUARTETO, R_MARCAS, R_HUCHA, R_TRAPERO, R_METRONOMO,
     R_FINO, R_PALO, R_RULETA, R_CAJA, R_SIETE, R_PAREJA_REAL, R_SIN_FIGURAS,
     R_LLENA, R_PRELUDIO, R_SUPLENTE, R_BOLSILLO, R_REGATEO, R_RACHA,
+    R_SUIZA, R_CHATARRERO, R_PRESTI, R_ALQUIMISTA, R_CARAMBOLA, R_GRABADOR, R_ARCHIVERO, R_SOLITARIO,
     R_COUNT
 };
 
@@ -67,17 +68,23 @@ typedef struct { unsigned char rank, suit, mark, notch, id; } Card;   /* rank 2.
 /* Regla de un amuleto: en que momento salta, con que condicion y que efecto tiene */
 typedef struct { unsigned char when, cond, arg, eff; short val; } Rule;
 
-typedef struct { const char *name; int chips, mult, upChips, upMult; } HandInfo;
+/* Idiomas: todos los textos de las tablas van como { espanol, ingles } */
+#define NUM_LANGS 2
+enum { LANG_ES, LANG_EN };
+extern int game_lang;
+#define LANG game_lang
+
+typedef struct { const char *name[NUM_LANGS]; int chips, mult, upChips, upMult; } HandInfo;
 typedef struct {
-    const char *name;
-    const char *desc;
+    const char *name[NUM_LANGS];
+    const char *desc[NUM_LANGS];
     unsigned char price, rarity;
     Rule rules[MAX_RULES];
 } RelicInfo;
-typedef struct { const char *name; const char *desc; unsigned char price, minSel, maxSel; } TrickInfo;
-typedef struct { const char *name; const char *desc; const char *unlock; } DeckInfo;
-typedef struct { const char *name; const char *desc; int minMesa; } BossInfo;   /* minMesa: desde que mesa sale */
-typedef struct { const char *name; const char *desc; } DiffInfo;
+typedef struct { const char *name[NUM_LANGS]; const char *desc[NUM_LANGS]; unsigned char price, minSel, maxSel; } TrickInfo;
+typedef struct { const char *name[NUM_LANGS]; const char *desc[NUM_LANGS]; const char *unlock[NUM_LANGS]; } DeckInfo;
+typedef struct { const char *name[NUM_LANGS]; const char *desc[NUM_LANGS]; int minMesa; } BossInfo;   /* minMesa: desde que mesa sale */
+typedef struct { const char *name[NUM_LANGS]; const char *desc[NUM_LANGS]; } DiffInfo;
 
 extern const HandInfo  HAND_INFO[HT_COUNT];
 extern const RelicInfo RELIC_INFO[R_COUNT];
@@ -85,12 +92,12 @@ extern const TrickInfo TRICK_INFO[T_COUNT];
 extern const DeckInfo  DECK_INFO[DECK_COUNT];
 extern const BossInfo  BOSS_INFO[B_COUNT];
 extern const DiffInfo  DIFF_INFO[DIFF_COUNT];
-extern const char *const MARK_NAME[MARK_COUNT];
-extern const char *const MARK_DESC[MARK_COUNT];
-extern const char *const NOTCH_NAME[NOTCH_COUNT];
-extern const char *const NOTCH_DESC[NOTCH_COUNT];
-extern const char *const RARITY_NAME[RAR_COUNT];
-extern const char *const SUIT_NAME[4];
+extern const char *const MARK_NAME[NUM_LANGS][MARK_COUNT];
+extern const char *const MARK_DESC[NUM_LANGS][MARK_COUNT];
+extern const char *const NOTCH_NAME[NUM_LANGS][NOTCH_COUNT];
+extern const char *const NOTCH_DESC[NUM_LANGS][NOTCH_COUNT];
+extern const char *const RARITY_NAME[NUM_LANGS][RAR_COUNT];
+extern const char *const SUIT_NAME[NUM_LANGS][4];
 
 typedef struct {
     int type;
@@ -136,6 +143,9 @@ typedef struct {
     int mesa, round;
     int lastBoss;
     int deckType, baseHands;
+    unsigned int seed;          /* semilla con la que empezo la partida */
+    /* estadisticas de la partida */
+    int statHands, statDiscards, statRounds, statTricks, statEarned;
     int difficulty;
     int endless;                /* 1 cuando ya se han superado las 8 mesas y se sigue jugando */
     long long bestHand;
@@ -197,5 +207,6 @@ int  game_shop_reroll(Game *g);
 int  game_shop_buy(Game *g, int idx);
 int  game_relic_sell_value(int id);
 void game_shop_sell(Game *g, int slot);
+int  game_move_relic(Game *g, int slot, int dir);   /* cambia el orden; devuelve el hueco nuevo */
 
 #endif

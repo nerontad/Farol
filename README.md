@@ -3,14 +3,19 @@
 **Un roguelike de póker para PSP.** Juega manos de póker, encadena amuletos que multiplican tu
 puntuación y supera ocho mesas de tahúres cada vez más exigentes.
 
-![Una jugada puntuando: el amuleto Racha suma Multi](capturas/20_evento_amuleto.png)
+![Una jugada puntuando: el amuleto Lastre suma fichas por una carta que se queda en la mano](capturas/jugada.png)
 
-FAROL es un juego casero (*homebrew*) inspirado en balatro, escrito en C para la PSP. Todo lo que ves y oyes
-se genera por código: no hay ni un solo archivo de imagen o de sonido en el juego.
+FAROL es un juego casero (*homebrew*) inspirado en Balatro, escrito en C para la PSP. Todo lo que
+ves y oyes se genera por código: el repositorio no tiene ni un solo archivo de imagen o de sonido
+del juego. Hasta el icono y el fondo del menú de la consola los dibuja un script al crear el ISO.
 
 > **Estado del proyecto.** Funciona completo en el emulador PPSSPP, donde se ha probado con
 > partidas automáticas. **Todavía no está confirmado en una consola real.** Si lo pruebas en tu
 > PSP, abre una incidencia contando qué tal: arranque, botones, sonido y guardado.
+
+**In English:** FAROL is a poker roguelike for the PSP, fully playable in English (*Options →
+Language*). Grab `FAROL.iso` from the [Releases](https://github.com/nerontad/Farol/releases/latest)
+page and copy it to the `ISO` folder of a PSP with custom firmware, or open it in PPSSPP.
 
 ## Contenido
 
@@ -31,38 +36,57 @@ se genera por código: no hay ni un solo archivo de imagen o de sonido en el jue
 
 | | |
 |:---:|:---:|
-| ![Pantalla de título](capturas/01_titulo.png) | ![La mesa de juego con amuletos y trucos](capturas/15_mano_amuletos.png) |
-| El menú principal | La mesa: amuletos arriba, tu mano abajo |
-| ![La tienda](capturas/14_tienda_compra.png) | ![Vista del mazo](capturas/18_info_mazo.png) |
-| La tienda entre rondas | Qué cartas te quedan por robar |
-| ![Amuletos y trucos que llevas](capturas/17_info_amuletos.png) | ![Modo infinito](capturas/31_infinito.png) |
-| Lo que llevas encima, explicado | El modo infinito, tras ganar |
+| ![Pantalla de título](capturas/titulo.png) | ![Presentación de un rival, con su retrato](capturas/presentacion_rival.png) |
+| El menú principal | Cada rival tiene su retrato y su regla (aquí, en inglés) |
+| ![La tienda](capturas/tienda.png) | ![Cambiar un amuleto de sitio](capturas/reordenar.png) |
+| La tienda entre rondas | Los amuletos se pueden cambiar de sitio: el orden importa |
+| ![Vista del mazo](capturas/mazo.png) | ![Fin de la partida con estadísticas](capturas/fin.png) |
+| Qué cartas te quedan por robar | El resumen de la partida, con su semilla |
+| ![Elegir la semilla](capturas/semilla.png) | ![En plena ronda contra un rival](capturas/rival.png) |
+| La semilla, para repetir o compartir una partida | En plena ronda contra un rival (en inglés) |
+| ![Opciones](capturas/opciones.png) | ![Victoria](capturas/victoria.png) |
+| Volumen de música y efectos, e idioma | La victoria, y la puerta al modo infinito |
 
-Las 62 ilustraciones del juego, dibujadas a mano como pixel art de 16×16:
+Las 87 ilustraciones del juego, dibujadas como pixel art de 16×16: 60 amuletos, los trucos y los
+17 rivales (sus caras se montan por capas: cara, sombrero, ojos y boca).
 
-![Ilustraciones de amuletos y trucos](capturas/ilustraciones.png)
+![Ilustraciones de amuletos, trucos y rivales](capturas/ilustraciones.png)
 
-El sonido también es sintetizado. Puedes escuchar una muestra de 14 segundos (música, un
-recuento subiendo de tono y el momento más ruidoso) en
-[capturas/muestra_sonido.wav](capturas/muestra_sonido.wav).
+El fondo que muestra la consola al elegir el juego en su menú:
+
+![Fondo del menú de la consola](capturas/fondo_consola.png)
+
+El sonido también es sintetizado. En [capturas/muestra_sonido.wav](capturas/muestra_sonido.wav)
+hay una muestra de 13 segundos que recorre las cuatro piezas de música (título, partida, rival y
+tienda) con un recuento que sube de tono en medio.
 
 ## Qué ofrece
 
-- **52 amuletos** pasivos en tres rarezas, cada uno con su ilustración. Llevas hasta cinco y su
-  orden importa.
+- **60 amuletos** pasivos en tres rarezas, cada uno con su ilustración. Llevas hasta cinco, su
+  orden importa y puedes cambiarlos de sitio cuando quieras.
+- **Sinergias:** amuletos que se alimentan de los trucos que llevas o usas, de las cartas con marca
+  o muesca, o de jugar una sola carta o las cinco.
 - **Cartas modificables en dos capas:** una *marca* que actúa al puntuar y una *muesca* que actúa
   en otros momentos.
 - **18 trucos** de un solo uso para cambiar palos, subir números, copiar o destruir cartas.
-- **17 rivales** con regla propia que te obligan a cambiar de plan.
+- **17 rivales** con retrato y regla propia que te obligan a cambiar de plan.
 - **5 barajas** iniciales y **3 dificultades**, que se van desbloqueando.
 - **Modo infinito** al superar la octava mesa.
+- **Semilla:** cada partida tiene un código de 8 cifras; si lo escribes al empezar, repites la
+  misma partida o la compartes.
+- **Estadísticas** de cada partida y acumuladas: manos jugadas, dinero ganado, tu amuleto
+  favorito...
+- **Español e inglés.** Por defecto, el idioma de la consola.
+- **Música que cambia según el momento** (título, partida, rival y tienda), con volumen de música y
+  de efectos por separado.
 - **Guardado automático** en los datos guardados de la consola, con colección y récords.
 - **Animaciones y sonido con chispa:** cartas con muelle, temblor de pantalla, confeti y un
   recuento que sube de tono y se acelera con cada carta.
 
 ## Descargar e instalar
 
-Descarga **[FAROL.iso](https://github.com/nerontad/Intento---1/raw/main/FAROL.iso)** (unos 700 KB).
+Descarga **`FAROL.iso`** (unos 800 KB) de la página de
+**[Releases](https://github.com/nerontad/Farol/releases/latest)**.
 
 ### En una PSP
 
@@ -73,8 +97,7 @@ no arranca.
 2. Copia `FAROL.iso` a la carpeta `ISO` de la raíz de la Memory Stick. Si no existe, créala.
 3. Búscalo en **Juego → Memory Stick**.
 
-Si prefieres no usar un ISO, copia
-[EBOOT.PBP](https://github.com/nerontad/Intento---1/raw/main/EBOOT.PBP) a `PSP/GAME/FAROL/`. Es el
+Si prefieres no usar un ISO, la misma página tiene `EBOOT.PBP`: cópialo a `PSP/GAME/FAROL/`. Es el
 mismo juego.
 
 ### En un ordenador o un móvil
@@ -115,8 +138,9 @@ El orden de la puntuación es siempre el mismo, y conviene conocerlo para coloca
 Un amuleto que suma Multi rinde más **antes** de uno que lo multiplica.
 
 **La partida** son 8 mesas de 3 rondas. La tercera ronda de cada mesa es contra un rival con una
-regla especial. Entre rondas visitas la **tienda**, donde gastas lo ganado en amuletos, lecciones
-(suben de nivel una mano), cartas marcadas y trucos.
+regla especial. Los objetivos van de 280 puntos en la primera ronda a más de 200.000 contra el
+rival de la octava mesa. Entre rondas visitas la **tienda**, donde gastas lo ganado en amuletos,
+lecciones (suben de nivel una mano), cartas marcadas y trucos.
 
 **El dinero:** cada ronda da un premio, más $1 por cada jugada que te sobre y $1 de interés por
 cada $5 que tengas ahorrados (hasta $5).
@@ -130,15 +154,18 @@ cada $5 que tengas ahorrados (hasta $5).
 | □ | Jugar las cartas elegidas | Vender un truco |
 | △ | Descartar las cartas elegidas | |
 | ○ | Soltar todas las cartas | |
-| L | Cambiar el orden de la mano (por número o por palo) | |
-| R | Abrir los trucos | |
+| L | Cambiar el orden de la mano (por número o por palo) | Sobre un amuleto tuyo: moverlo a la izquierda |
+| R | Abrir los trucos | Sobre un amuleto tuyo: moverlo a la derecha |
 | SELECT | Abrir o cerrar la información. L y R pasan de página | Igual |
-| START | Pausa: música sí/no y salir al título | |
+| START | Pausa: volumen, semilla y salir al título | |
 
-Para usar un truco: elige primero las cartas, pulsa R, escoge el truco y confirma con ✕.
-
-La información (SELECT) tiene tres páginas: los niveles de cada mano, lo que hacen tus amuletos
-y trucos, y el mazo completo con las cartas que te quedan por robar.
+- **Usar un truco:** elige primero las cartas, pulsa R, escoge el truco y confirma con ✕.
+- **Cambiar un amuleto de sitio en plena ronda:** SELECT, página de amuletos, ✕ para cogerlo,
+  arriba o abajo para moverlo y ✕ para soltarlo.
+- **La información** (SELECT) tiene tres páginas: los niveles de cada mano, lo que hacen tus
+  amuletos y trucos, y el mazo completo con las cartas que te quedan por robar.
+- **Elegir la semilla:** al empezar una partida, baja hasta *Semilla* y pulsa ✕. Arriba y abajo
+  cambian cada cifra.
 
 ## Todo el contenido
 
@@ -233,7 +260,7 @@ Ganar una partida abre la dificultad siguiente.
 <details>
 <summary><b>Algunos amuletos</b></summary>
 
-Hay 52. Estos dan una idea de los tipos que existen:
+Hay 60. Estos dan una idea de los tipos que existen:
 
 | Amuleto | Efecto |
 |---|---|
@@ -242,9 +269,11 @@ Hay 52. Estos dan una idea de los tipos que existen:
 | Eco | La última carta que puntúa se cuenta dos veces |
 | Banquillo | Cada figura que se queda en tu mano: +3 Multi |
 | Metrónomo | Gana +1 Multi para siempre después de cada jugada |
-| Mazo fino | +4 Multi por cada carta que le falte a tu mazo para llegar a 52 |
 | Pareja real | Si puntúan a la vez una K y una Q: ×2 Multi |
-| Regateo | Todo cuesta $1 menos en la tienda |
+| Navaja suiza | Por cada truco que lleves encima: ×1,3 Multi |
+| Alquimista | Las cartas con marca puntúan dos veces |
+| Carambola | Si puntúan las 5 cartas jugadas: ×2,5 Multi |
+| Solitario | Si juegas una sola carta: ×3 Multi |
 
 El resto se descubre jugando: la colección del menú principal guarda los que ya has comprado.
 
@@ -256,19 +285,23 @@ La partida se guarda sola al empezar cada ronda y al entrar en la tienda. Si apa
 mitad de una ronda, al continuar vuelves al principio de esa ronda.
 
 Usa los datos guardados del sistema: aparece en **Juego → Datos guardados** como "FAROL"
-(carpeta `PSP/SAVEDATA/FARL000010000`). Ahí están también los récords, la colección y lo
-desbloqueado; para empezar de cero, bórralo desde ese menú.
+(carpeta `PSP/SAVEDATA/FARL000010000`). Ahí están también los récords, las estadísticas, la
+colección, lo desbloqueado y las opciones; para empezar de cero, bórralo desde ese menú.
 
 ## Compilar desde el código
 
 Hacen falta el toolchain [pspdev](https://pspdev.github.io/) y Python 3.
 
 ```bash
-git clone https://github.com/nerontad/Intento---1.git
-cd Intento---1
+git clone https://github.com/nerontad/Farol.git
+cd Farol
+python tools/mkiso.py --images build
 make
 python tools/mkiso.py farol.prx FAROL.iso
 ```
+
+El primer paso dibuja el icono y el fondo del menú de la consola para el `EBOOT.PBP`; el último crea
+el ISO, que los genera por su cuenta.
 
 En Windows, con Docker Desktop abierto, basta con ejecutar el script incluido, que usa la imagen
 oficial `pspdev/pspdev`:
@@ -277,7 +310,8 @@ oficial `pspdev/pspdev`:
 .\build.ps1
 ```
 
-El resultado es `FAROL.iso` y también `EBOOT.PBP`.
+El resultado es `FAROL.iso` y también `EBOOT.PBP`. Ninguno de los dos se guarda en el repositorio:
+se publican en [Releases](https://github.com/nerontad/Farol/releases).
 
 ## Pruebas
 
@@ -300,37 +334,39 @@ interfaz, como si pulsara los botones, y el propio juego guarda capturas en la M
 
 | Orden | Qué hace |
 |---|---|
-| `make clean && make AUTOTEST=1` | Una partida completa desde un perfil vacío |
+| `make clean && make AUTOTEST=1` | Una partida completa en español, con la semilla elegida a mano |
 | `make clean && make AUTOTEST=2` | Se detiene en la primera tienda y deja la partida guardada |
 | `make clean && make AUTOTEST=3` | Lee ese guardado, elige "Continuar" y comprueba dónde aparece |
-| `make clean && make AUTOTEST=4` | Gana todas las rondas: victoria y dos mesas de modo infinito |
+| `make clean && make AUTOTEST=4` | En inglés: gana todas las rondas, victoria y dos mesas de modo infinito |
 
 En PPSSPP hay que activar el renderizado por software para que las capturas no salgan en negro.
 Después, `make clean && make` vuelve a la versión normal.
 
 ## Cómo está hecho
 
-Unas 6000 líneas de C, sin más dependencias que el SDK de la PSP.
+Unas 6800 líneas de C, sin más dependencias que el SDK de la PSP.
 
 | Archivo | Qué contiene |
 |---|---|
-| `src/game.c` | Las reglas: mazo, manos, puntuación, rivales, tienda y trucos. No depende de la PSP |
-| `src/save.c` | Perfil y partida guardada, con suma de comprobación |
+| `src/game.c` | Las reglas y todos los textos del juego en los dos idiomas. No depende de la PSP |
+| `src/save.c` | Perfil, estadísticas y partida guardada, con suma de comprobación |
 | `src/savedata.c` | Guardado en la consola (datos guardados del sistema, con archivo de respaldo) |
 | `src/ui.c` | Pantallas, animaciones y flujo de la partida |
 | `src/gfx.c` | Dibujo 2D sobre `sceGu`: rectángulos, texto, ilustraciones, giro y escala |
-| `src/synth.c`, `src/audio.c` | Sintetizador de efectos y música |
+| `src/synth.c`, `src/audio.c` | Sintetizador de efectos y de las cuatro piezas de música |
 | `src/art.h` | Ilustraciones, generadas desde `tools/art.txt` |
 | `src/autotest.h` | El bot del modo de autoprueba |
-| `tools/mkiso.py` | Genera `PARAM.SFO`, el icono y la imagen ISO, solo con la biblioteca estándar |
+| `tools/mkiso.py` | Genera `PARAM.SFO`, el icono, el fondo y la imagen ISO, solo con la biblioteca estándar |
 | `tools/mkart.py` | Convierte las ilustraciones de texto en código |
 
 ### Los amuletos son datos
 
-Cada amuleto es una fila de una tabla con hasta dos reglas del tipo *cuándo / condición / efecto*:
+Cada amuleto es una fila de una tabla, con su nombre y su descripción en español e inglés y hasta
+dos reglas del tipo *cuándo / condición / efecto*:
 
 ```c
-{ "Herradura", "+4 Multi en cada jugada.", 4, RAR_COMMON,
+{ { "Herradura", "Horseshoe" },
+  { "+4 Multi en cada jugada.", "+4 Mult on every hand." }, 4, RAR_COMMON,
   { { W_END, C_ALWAYS, 0, E_MULT, 4 } } },
 ```
 
@@ -340,9 +376,9 @@ Para añadir uno:
 
 1. Añade su identificador al final de la lista de amuletos en `src/game.h`, antes de `R_COUNT`.
 2. Añade su fila en `RELIC_INFO`, en `src/game.c`, en la misma posición.
-3. Dibuja su icono en `tools/art.txt`, justo antes de los iconos de trucos, y ejecuta
+3. Dibuja su icono en `tools/art.txt`, justo antes de los iconos de trucos (`t_...`), y ejecuta
    `python tools/mkart.py`.
-4. Sube `SAVE_VERSION` en `src/save.c`: el guardado reserva un bit por amuleto y cambia de tamaño.
+4. Sube `SAVE_VERSION` en `src/save.c`: el guardado reserva espacio por amuleto y cambia de tamaño.
 
 ### Las ilustraciones son texto
 
@@ -356,25 +392,28 @@ Cada icono son 16 filas de 16 letras, donde cada letra es un color de la paleta:
 .kyYyk....kyYyk.
 ```
 
+Los retratos de los rivales se montan por capas (`b_cara`, un sombrero, unos ojos y una boca), y
+el juego pinta encima el color de la ropa de cada uno.
+
 `python tools/mkart.py vista.png` las valida, genera `src/art.h` y una hoja de vista previa.
 
 ## Limitaciones conocidas
 
 - **Sin probar en consola real.** Arranque, mando, sonido y guardado solo están verificados en PPSSPP.
-- **Dificultad sin afinar.** El bot de pruebas supera unas tres mesas de media y casi nunca gana;
-  falta que la jueguen personas.
+- **Dificultad por afinar.** En la v0.5 los objetivos subieron en todas las mesas (las últimas
+  piden más del doble que antes) porque las primeras partidas resultaron demasiado fáciles. Falta
+  ajustarla con más jugadores.
 - **Sin tutorial.** El juego no explica las reglas más allá de la pantalla de información.
-- **Solo en español.**
-- Algunas ilustraciones se entienden peor que otras.
 
 ## Créditos y licencia
 
-FAROL es un juego inspirado en balatro, pero no es balatro: su código, sus reglas concretas, sus textos, sus ilustraciones y su
-sonido se hicieron para este proyecto. Pertenece al género de los roguelikes de construcción de
-mazos con manos de póker, pero no es un port ni una copia de ningún juego comercial, ni está
-afiliado a ninguno.
+FAROL es un juego inspirado en Balatro, pero no es Balatro: su código, sus reglas concretas, sus
+textos, sus ilustraciones y su sonido se hicieron para este proyecto. Pertenece al género de los
+roguelikes de construcción de mazos con manos de póker, pero no es un port ni una copia de ningún
+juego comercial, ni está afiliado a ninguno.
 
 Compilado con el toolchain libre [pspdev](https://github.com/pspdev/pspdev). PSP es una marca de
 Sony Interactive Entertainment, que no tiene relación con este proyecto.
 
-Licencia: pendiente de definir.
+Publicado con la [licencia MIT](LICENSE): puedes usar, modificar y redistribuir el código siempre
+que conserves el aviso de copyright.

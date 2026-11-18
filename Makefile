@@ -20,6 +20,13 @@ LIBS = -lpspgu -lpspaudiolib -lpspaudio -lm
 BUILD_PRX = 1
 EXTRA_TARGETS = EBOOT.PBP
 PSP_EBOOT_TITLE = FAROL
+# icono y fondo del menu de la consola: los genera `python tools/mkiso.py --images build`
+ifneq ($(wildcard build/ICON0.PNG),)
+PSP_EBOOT_ICON = build/ICON0.PNG
+endif
+ifneq ($(wildcard build/PIC1.PNG),)
+PSP_EBOOT_PIC1 = build/PIC1.PNG
+endif
 
 PSPSDK = $(shell psp-config --pspsdk-path)
 include $(PSPSDK)/lib/build.mak

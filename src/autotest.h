@@ -5,41 +5,47 @@
  * de pantalla en los momentos interesantes. Las capturas las vuelca
  * gfx_dump() a ms0:/farol_<nombre>.raw.
  *
- *   AUTOTEST=1  partida completa desde un perfil vacio
+ *   AUTOTEST=1  partida completa desde un perfil vacio, en espanol, con semilla elegida a mano
  *   AUTOTEST=2  se detiene al llegar a la primera tienda (deja una partida guardada)
  *   AUTOTEST=3  lee el guardado, elige "Continuar" y comprueba donde aparece
- *   AUTOTEST=4  gana todas las rondas: llega a la victoria y sigue dos mesas en modo infinito
+ *   AUTOTEST=4  en ingles; gana todas las rondas: victoria y dos mesas de modo infinito
  */
 
 int savedata_official(void);
 
 enum {
-    SH_TITLE, SH_COLLECTION, SH_COL_TRICKS, SH_RECORDS, SH_DECK, SH_INTRO, SH_HAND, SH_SELECT, SH_SCORING,
-    SH_TOTAL, SH_ROUNDWIN, SH_REWARD, SH_SHOP, SH_SHOP2, SH_HAND2, SH_INFO, SH_INFO_ITEMS, SH_INFO_DECK,
-    SH_PAUSE, SH_RELIC_EV, SH_BOSS_INTRO, SH_BOSS_PLAY, SH_INFO_SHOP, SH_SHOP_TRICK, SH_TRICK, SH_TRICK_DONE,
+    SH_TITLE, SH_COLLECTION, SH_STATS, SH_RECORDS, SH_COL_TRICKS, SH_OPTIONS, SH_DECK, SH_SEED,
+    SH_INTRO, SH_HAND, SH_SELECT, SH_SCORING, SH_TOTAL, SH_ROUNDWIN, SH_REWARD, SH_SHOP, SH_SHOP2,
+    SH_SHOP_REORDER, SH_HAND2, SH_INFO, SH_INFO_ITEMS, SH_INFO_REORDER, SH_INFO_DECK, SH_PAUSE,
+    SH_RELIC_EV, SH_BOSS_INTRO, SH_BOSS_PLAY, SH_INFO_SHOP, SH_SHOP_TRICK, SH_TRICK, SH_TRICK_DONE,
     SH_HELD_EV, SH_END, SH_RESUME, SH_VICTORY, SH_ENDLESS, SH_COUNT
 };
 
 static const char *const SH_NAME[SH_COUNT] = {
-    "01_titulo", "02_coleccion", "03_coleccion_trucos", "04_records", "05_barajas", "06_intro", "07_mano",
-    "08_seleccion", "09_puntuando", "10_total", "11_ronda_superada", "12_premio", "13_tienda",
-    "14_tienda_compra", "15_mano_amuletos", "16_info_manos", "17_info_amuletos", "18_info_mazo",
-    "19_pausa", "20_evento_amuleto", "21_intro_rival", "22_ronda_rival", "23_mazo_en_tienda",
-    "24_tienda_truco", "25_truco_menu", "26_truco_usado", "27_evento_en_mano", "28_fin", "29_continuar",
-    "30_victoria", "31_infinito"
+    "01_titulo", "02_coleccion", "03_estadisticas", "04_records", "05_coleccion_trucos", "06_opciones",
+    "07_barajas", "08_semilla", "09_intro", "10_mano", "11_seleccion", "12_puntuando", "13_total",
+    "14_ronda_superada", "15_premio", "16_tienda", "17_tienda_compra", "18_tienda_reordenar",
+    "19_mano_amuletos", "20_info_manos", "21_info_amuletos", "22_info_reordenar", "23_info_mazo",
+    "24_pausa", "25_evento_amuleto", "26_intro_rival", "27_ronda_rival", "28_mazo_en_tienda",
+    "29_tienda_truco", "30_truco_menu", "31_truco_usado", "32_evento_en_mano", "33_fin",
+    "34_continuar", "35_victoria", "36_infinito"
 };
 
-static unsigned int at_seen;
+static unsigned long long at_seen;
 static const char *at_pending;
 static int at_done, at_cool, at_frames, at_lastState = -1, at_lastPhase = -1;
 static int at_plan, at_planMask, at_planDiscard, at_pauseAsked;
-static int at_colStep, at_trickTries, at_lastTricks, at_resumeOk = -1;
-static int at_infoStep, at_infoShop, at_soldTrick;
+static int at_titleStep, at_colStep, at_trickTries, at_lastTricks, at_resumeOk = -1;
+/* algunas solo las usa cierta variante */
+#define AT_UNUSED __attribute__((unused))
+static int at_infoStep, at_reorderStep;
+static int at_shopInfo AT_UNUSED, at_shopReorder AT_UNUSED, at_soldTrick AT_UNUSED;
+static int at_seedDone AT_UNUSED, at_seedTouched AT_UNUSED;
 
 static int at_shot(int id)
 {
-    if (at_seen & (1u << id)) return 0;
-    at_seen |= 1u << id;
+    if (at_seen & (1ull << id)) return 0;
+    at_seen |= 1ull << id;
     at_pending = SH_NAME[id];
     return 1;
 }
@@ -121,6 +127,31 @@ static unsigned int at_select_mask(int mask)
     return 0;
 }
 
+/* Con la informacion abierta durante la ronda: recorre sus paginas o cambia un amuleto de sitio */
+static unsigned int at_info_open(void)
+{
+    if (at_reorderStep > 0 && at_reorderStep < 5) {
+        if (at_reorderStep == 1) {
+            if (infoPage != 1) return at_press(BTN_R);
+            at_reorderStep = 2;
+            infoSel = 0;
+            return at_press(BTN_CROSS);            /* coge el primer amuleto */
+        }
+        if (at_reorderStep == 2) { at_reorderStep = 3; return at_press(BTN_DOWN); }
+        if (at_reorderStep == 3) {
+            if (at_shot(SH_INFO_REORDER)) return 0;
+            at_reorderStep = 4;
+            return at_press(BTN_CROSS);            /* lo suelta */
+        }
+        at_reorderStep = 5;
+        return at_press(BTN_SELECT);
+    }
+    if (at_infoStep == 1) { if (at_shot(SH_INFO)) return 0; at_infoStep = 2; return at_press(BTN_R); }
+    if (at_infoStep == 2) { if (at_shot(SH_INFO_ITEMS)) return 0; at_infoStep = 3; return at_press(BTN_R); }
+    if (at_infoStep == 3) { if (at_shot(SH_INFO_DECK)) return 0; at_infoStep = 4; }
+    return at_press(BTN_SELECT);
+}
+
 unsigned int ui_autotest_buttons(void)
 {
     unsigned int b;
@@ -139,14 +170,15 @@ unsigned int ui_autotest_buttons(void)
 
     switch (state) {
     case ST_TITLE: {
-        int ids[3], want = TI_NEW, target = -1;
+        int ids[4], want = TI_NEW, target = -1;
         n = title_items(ids);
         if (at_frames < 45) return 0;
         if (at_shot(SH_TITLE)) return 0;
 #if AUTOTEST == 3
         want = TI_CONTINUE;
 #else
-        if (at_colStep < 4) want = TI_COLLECTION;
+        if (at_titleStep == 0) want = TI_COLLECTION;
+        else if (at_titleStep == 1) want = TI_OPTIONS;
 #endif
         for (i = 0; i < n; i++)
             if (ids[i] == want) target = i;
@@ -162,16 +194,38 @@ unsigned int ui_autotest_buttons(void)
 
     case ST_COLLECTION:
         if (at_frames < 15) return 0;
-        /* amuletos -> (L) records -> (L) trucos -> salir */
+        /* amuletos -> (L) estadisticas -> (L) records -> (L) trucos -> salir */
         if (at_colStep == 0) { if (at_shot(SH_COLLECTION)) return 0; at_colStep = 1; return at_press(BTN_L); }
-        if (at_colStep == 1) { if (at_shot(SH_RECORDS)) return 0; at_colStep = 2; return at_press(BTN_L); }
-        if (at_colStep == 2) { if (at_shot(SH_COL_TRICKS)) return 0; at_colStep = 3; return 0; }
-        at_colStep = 4;
+        if (at_colStep == 1) { if (at_shot(SH_STATS)) return 0; at_colStep = 2; return at_press(BTN_L); }
+        if (at_colStep == 2) { if (at_shot(SH_RECORDS)) return 0; at_colStep = 3; return at_press(BTN_L); }
+        if (at_colStep == 3) { if (at_shot(SH_COL_TRICKS)) return 0; at_colStep = 4; return 0; }
+        at_titleStep = 1;
+        return at_press(BTN_CIRCLE);
+
+    case ST_OPTIONS:
+        if (at_frames < 15) return 0;
+        if (at_shot(SH_OPTIONS)) return 0;
+        at_titleStep = 2;
+        if (optMusic == 7) return at_press(BTN_LEFT);      /* baja un punto la musica y vuelve */
         return at_press(BTN_CIRCLE);
 
     case ST_DECK:
         if (at_frames < 20) return 0;
         if (at_shot(SH_DECK)) return 0;
+#if AUTOTEST == 1
+        /* elige la semilla a mano: baja a su fila, la edita y sube la primera cifra */
+        if (!at_seedDone) {
+            if (seedEdit) {
+                if (!at_seedTouched) { at_seedTouched = 1; return at_press(BTN_UP); }
+                if (at_shot(SH_SEED)) return 0;
+                at_seedDone = 1;
+                return at_press(BTN_CROSS);
+            }
+            if (deckSel < DECK_SEED_ROW) return at_press(BTN_DOWN);
+            return at_press(BTN_CROSS);
+        }
+#endif
+        if (deckSel != 0) return at_press(BTN_UP);
         return at_press(BTN_CROSS);
 
     case ST_INTRO:
@@ -201,7 +255,7 @@ unsigned int ui_autotest_buttons(void)
             if (phase == PH_TOTAL && timer == 5 && at_shot(SH_TOTAL)) return 0;
             if (phase == PH_END && timer == 20 && game_round_won(&g) && at_shot(SH_ROUNDWIN)) return 0;
             /* tras la primera jugada, acelera el recuento */
-            return ((at_seen & (1u << SH_TOTAL)) && phase != PH_END) ? BTN_CROSS : 0;
+            return ((at_seen & (1ull << SH_TOTAL)) && phase != PH_END) ? BTN_CROSS : 0;
         }
         if (at_frames < 30) return 0;
         if (g.trickCount < at_lastTricks && at_shot(SH_TRICK_DONE)) {
@@ -210,13 +264,7 @@ unsigned int ui_autotest_buttons(void)
         }
         at_lastTricks = g.trickCount;
 
-        /* la informacion se abre con SELECT y se pasa de pagina con R: manos, amuletos, mazo */
-        if (showInfo) {
-            if (at_infoStep == 1) { if (at_shot(SH_INFO)) return 0; at_infoStep = 2; return at_press(BTN_R); }
-            if (at_infoStep == 2) { if (at_shot(SH_INFO_ITEMS)) return 0; at_infoStep = 3; return at_press(BTN_R); }
-            if (at_infoStep == 3) { if (at_shot(SH_INFO_DECK)) return 0; at_infoStep = 4; }
-            return at_press(BTN_SELECT);
-        }
+        if (showInfo) return at_info_open();
         if (at_shot(g.bossRule != B_NONE ? SH_BOSS_PLAY : SH_HAND)) return 0;
         if (g.relicCount > 0) {
             if (at_shot(SH_HAND2)) return 0;
@@ -224,6 +272,11 @@ unsigned int ui_autotest_buttons(void)
                 at_infoStep = 1;
                 return at_press(BTN_SELECT);
             }
+        }
+        /* con dos amuletos o mas, cambia uno de sitio desde la informacion */
+        if (g.relicCount >= 2 && at_infoStep >= 4 && at_reorderStep == 0) {
+            at_reorderStep = 1;
+            return at_press(BTN_SELECT);
         }
         if (g.round == 1 && !at_pauseAsked) {
             at_pauseAsked = 1;
@@ -290,9 +343,22 @@ unsigned int ui_autotest_buttons(void)
             return at_press(BTN_CROSS);
         }
         if (at_shot(SH_SHOP2)) return 0;
-        if (g.relicCount > 0 && !at_infoShop) {
-            at_infoShop = 1;
+        if (g.relicCount > 0 && !at_shopInfo) {
+            at_shopInfo = 1;
             return at_press(BTN_SELECT);
+        }
+        /* con dos amuletos o mas, pasa el primero al segundo puesto con R */
+        if (g.relicCount >= 2 && at_shopReorder < 2) {
+            int row = SHOP_OFFERS + 1;
+            if (at_shopReorder == 1) {
+                if (at_shot(SH_SHOP_REORDER)) return 0;
+                at_shopReorder = 2;
+                return 0;
+            }
+            if (shopSel < row) return at_press(BTN_DOWN);
+            if (shopSel > row) return at_press(BTN_UP);
+            at_shopReorder = 1;
+            return at_press(BTN_R);
         }
         /* una vez, vende un truco propio con Cuadrado para probar esa fila */
         if (g.trickCount > 1 && !at_soldTrick) {
@@ -338,11 +404,12 @@ int ui_autotest_summary(char *b, int n)
     int peak;
     unsigned int nonzero;
     synth_stats(&peak, &nonzero);
-    return snprintf(b, n, "modo=%d estado=%d mesa=%d ronda=%d infinito=%d dinero=%d amuletos=%d trucos=%d mazo=%d mejor=%d "
-                    "frames=%d audio_pico=%d guardada=%d descubiertos=%d+%d partidas=%u victorias=%u dificultad_max=%d "
-                    "continuar=%d guardado_oficial=%d\n",
-                    AUTOTEST, state, g.mesa + 1, g.round + 1, g.endless, g.money, g.relicCount, g.trickCount,
-                    game_deck_alive(&g), (int)g.bestHand, frame, peak, save_has_run(), save_found_count(),
+    return snprintf(b, n, "modo=%d idioma=%d estado=%d mesa=%d ronda=%d infinito=%d dinero=%d amuletos=%d trucos=%d mazo=%d "
+                    "mejor=%d semilla=%08X frames=%d audio_pico=%d guardada=%d descubiertos=%d+%d partidas=%u victorias=%u "
+                    "dificultad_max=%d musica=%d manos_total=%u continuar=%d guardado_oficial=%d\n",
+                    AUTOTEST, game_lang, state, g.mesa + 1, g.round + 1, g.endless, g.money, g.relicCount, g.trickCount,
+                    game_deck_alive(&g), (int)g.bestHand, g.seed, frame, peak, save_has_run(), save_found_count(),
                     save_trick_found_count(), save_profile()->runs, save_profile()->wins,
-                    save_profile()->maxDifficulty, at_resumeOk, savedata_official());
+                    save_profile()->maxDifficulty, save_profile()->musicVol, save_profile()->totalHands,
+                    at_resumeOk, savedata_official());
 }

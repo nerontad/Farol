@@ -16,7 +16,8 @@ int ui_autotest_done(void);
 int ui_autotest_summary(char *b, int n);
 #endif
 
-/* la proporciona la plataforma (main.c) */
+/* las proporciona la plataforma (main.c) */
 unsigned int plat_ticks(void);
+int plat_system_lang(void);     /* LANG_ES si la consola esta en espanol; LANG_EN si no */
 
 #endif
